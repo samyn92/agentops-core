@@ -42,5 +42,3 @@ Thumbs.db
 .env.*
 images/agent-runtime-fantasy/agent-runtime
 images/agent-runtime-fantasy/agent-runtime-fantasy
-images/agent-runtime-fantasy/fep.go
-images/agent-runtime-fantasy/session.go
