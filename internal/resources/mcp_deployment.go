@@ -81,7 +81,7 @@ func BuildMCPServerDeployment(mcp *agentsv1alpha1.MCPServer) *appsv1.Deployment 
 
 	// Set GATEWAY_COMMAND from spec.command so the gateway knows what to spawn.
 	if len(mcp.Spec.Command) > 0 {
-		var cmdParts []string
+		cmdParts := make([]string, 0, len(mcp.Spec.Command))
 		cmdParts = append(cmdParts, mcp.Spec.Command...)
 		env = append(env, corev1.EnvVar{
 			Name:  "GATEWAY_COMMAND",

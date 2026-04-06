@@ -358,7 +358,7 @@ func (r *AgentRunReconciler) reconcileDaemonRun(ctx context.Context, run *agents
 		log.Error(err, "Failed to send prompt to agent", "url", promptURL)
 		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(resp.Body)
@@ -430,7 +430,7 @@ func (r *AgentRunReconciler) pollDaemonRunStatus(ctx context.Context, run *agent
 		// Agent might be temporarily unavailable
 		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var status struct {
 		Busy       bool   `json:"busy"`

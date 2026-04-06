@@ -180,7 +180,7 @@ func (r *MCPServerReconciler) reconcileExternalMode(ctx context.Context, mcp *ag
 			Message: fmt.Sprintf("Failed to reach %s: %v", healthURL, err),
 		})
 	} else {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode < 400 {
 			mcp.Status.Phase = agentsv1alpha1.MCPServerPhaseReady
 			meta.SetStatusCondition(&mcp.Status.Conditions, metav1.Condition{

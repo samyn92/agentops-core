@@ -77,8 +77,8 @@ func (r *Agent) ValidateDelete(_ context.Context, _ runtime.Object) (admission.W
 }
 
 func (r *Agent) validate() (admission.Warnings, error) {
-	var allErrs field.ErrorList
-	var warnings admission.Warnings
+	allErrs := make(field.ErrorList, 0, 8)
+	warnings := make(admission.Warnings, 0)
 	specPath := field.NewPath("spec")
 
 	allErrs = append(allErrs, r.validateMode(specPath)...)
