@@ -77,10 +77,8 @@ func (r *Agent) validate() (admission.Warnings, error) {
 	specPath := field.NewPath("spec")
 
 	allErrs = append(allErrs, r.validateMode(specPath)...)
-	errs, warns := r.validateProviderAndTools(specPath)
-	allErrs = append(allErrs, errs...)
-	warnings = append(warnings, warns...)
-	errs, warns = r.validateToolHooks(specPath)
+	allErrs = append(allErrs, r.validateProviderAndTools(specPath)...)
+	errs, warns := r.validateToolHooks(specPath)
 	allErrs = append(allErrs, errs...)
 	warnings = append(warnings, warns...)
 	allErrs = append(allErrs, r.validateResourceRefs(specPath)...)
@@ -116,7 +114,7 @@ func (r *Agent) validateMode(specPath *field.Path) field.ErrorList {
 	return errs
 }
 
-func (r *Agent) validateProviderAndTools(specPath *field.Path) (field.ErrorList, admission.Warnings) {
+func (r *Agent) validateProviderAndTools(specPath *field.Path) field.ErrorList {
 	var errs field.ErrorList
 
 	// Providers required
@@ -172,7 +170,7 @@ func (r *Agent) validateProviderAndTools(specPath *field.Path) (field.ErrorList,
 		}
 	}
 
-	return errs, nil
+	return errs
 }
 
 func (r *Agent) validateToolHooks(specPath *field.Path) (field.ErrorList, admission.Warnings) {
