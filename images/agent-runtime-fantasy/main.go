@@ -2,7 +2,7 @@
 Agent Runtime — Fantasy (Go)
 
 Main entrypoint. Two subcommands:
-  - daemon: HTTP server on :4096 (Deployment mode)
+  - daemon: HTTP server on :4096 (Deployment mode) — full FEP SSE protocol
   - task: Read AGENT_PROMPT, run once, JSON to stdout (Job mode)
 */
 package main
@@ -71,9 +71,9 @@ func loadConfig() (*Config, error) {
 
 // agentBundle holds the built agent and resources that need cleanup.
 type agentBundle struct {
-	agent      fantasy.Agent
-	providers  map[string]fantasy.Provider
-	mcpConns   []mcpConnection
+	agent     fantasy.Agent
+	providers map[string]fantasy.Provider
+	mcpConns  []mcpConnection
 }
 
 func buildAgentBundle(ctx context.Context, cfg *Config) (*agentBundle, error) {
@@ -126,7 +126,6 @@ func buildAgentBundle(ctx context.Context, cfg *Config) (*agentBundle, error) {
 	k8sClient, err := NewK8sClient()
 	if err != nil {
 		slog.Warn("K8s client unavailable, orchestration tools disabled", "error", err)
-		// Add stub tools that return errors
 		tools = append(tools, newRunAgentToolStub(), newGetAgentRunToolStub())
 	} else {
 		tools = append(tools, newRunAgentTool(k8sClient), newGetAgentRunTool(k8sClient))
@@ -151,14 +150,14 @@ func buildAgentBundle(ctx context.Context, cfg *Config) (*agentBundle, error) {
 	}
 
 	return &agentBundle{
-		agent:      fantasy.NewAgent(model, opts...),
-		providers:  providers,
-		mcpConns:   allMCPConns,
+		agent:     fantasy.NewAgent(model, opts...),
+		providers: providers,
+		mcpConns:  allMCPConns,
 	}, nil
 }
 
-// buildFallbackAgent creates a new agent with a fallback model (reusing tools/options from config).
-func buildFallbackAgent(ctx context.Context, cfg *Config, providers map[string]fantasy.Provider, modelStr string, originalAgent fantasy.Agent) (fantasy.Agent, error) {
+// buildFallbackAgent creates a new agent with a fallback model (reusing options from config).
+func buildFallbackAgent(ctx context.Context, cfg *Config, providers map[string]fantasy.Provider, modelStr string) (fantasy.Agent, error) {
 	model, err := resolveModel(ctx, modelStr, providers)
 	if err != nil {
 		return nil, err
@@ -181,9 +180,41 @@ func buildFallbackAgent(ctx context.Context, cfg *Config, providers map[string]f
 	return fantasy.NewAgent(model, opts...), nil
 }
 
+// streamWithFallback tries the primary model, then fallbacks on retryable errors.
+func streamWithFallback(ctx context.Context, cfg *Config, bundle *agentBundle, call fantasy.AgentStreamCall) (*fantasy.AgentResult, string, error) {
+	result, err := bundle.agent.Stream(ctx, call)
+	if err == nil {
+		return result, cfg.PrimaryModel, nil
+	}
+
+	if !isRetryableError(err) || len(cfg.FallbackModels) == 0 {
+		return nil, cfg.PrimaryModel, err
+	}
+
+	slog.Warn("primary model failed on stream, trying fallbacks",
+		"model", cfg.PrimaryModel, "error", err)
+
+	for _, fbModel := range cfg.FallbackModels {
+		fbAgent, fbErr := buildFallbackAgent(ctx, cfg, bundle.providers, fbModel)
+		if fbErr != nil {
+			continue
+		}
+
+		result, err = fbAgent.Stream(ctx, call)
+		if err == nil {
+			return result, fbModel, nil
+		}
+
+		if !isRetryableError(err) {
+			return nil, fbModel, err
+		}
+	}
+
+	return nil, cfg.PrimaryModel, fmt.Errorf("all models failed, last error: %w", err)
+}
+
 // generateWithFallback tries the primary model, then fallbacks on retryable errors.
 func generateWithFallback(ctx context.Context, cfg *Config, bundle *agentBundle, call fantasy.AgentCall) (*fantasy.AgentResult, string, error) {
-	// Try primary model
 	result, err := bundle.agent.Generate(ctx, call)
 	if err == nil {
 		return result, cfg.PrimaryModel, nil
@@ -196,9 +227,8 @@ func generateWithFallback(ctx context.Context, cfg *Config, bundle *agentBundle,
 	slog.Warn("primary model failed, trying fallbacks",
 		"model", cfg.PrimaryModel, "error", err)
 
-	// Try fallback models
 	for _, fbModel := range cfg.FallbackModels {
-		fbAgent, fbErr := buildFallbackAgent(ctx, cfg, bundle.providers, fbModel, bundle.agent)
+		fbAgent, fbErr := buildFallbackAgent(ctx, cfg, bundle.providers, fbModel)
 		if fbErr != nil {
 			slog.Warn("failed to build fallback agent", "model", fbModel, "error", fbErr)
 			continue
@@ -219,39 +249,6 @@ func generateWithFallback(ctx context.Context, cfg *Config, bundle *agentBundle,
 	return nil, cfg.PrimaryModel, fmt.Errorf("all models failed, last error: %w", err)
 }
 
-// streamWithFallback tries the primary model, then fallbacks on retryable errors.
-func streamWithFallback(ctx context.Context, cfg *Config, bundle *agentBundle, call fantasy.AgentStreamCall) (*fantasy.AgentResult, string, error) {
-	result, err := bundle.agent.Stream(ctx, call)
-	if err == nil {
-		return result, cfg.PrimaryModel, nil
-	}
-
-	if !isRetryableError(err) || len(cfg.FallbackModels) == 0 {
-		return nil, cfg.PrimaryModel, err
-	}
-
-	slog.Warn("primary model failed on stream, trying fallbacks",
-		"model", cfg.PrimaryModel, "error", err)
-
-	for _, fbModel := range cfg.FallbackModels {
-		fbAgent, fbErr := buildFallbackAgent(ctx, cfg, bundle.providers, fbModel, bundle.agent)
-		if fbErr != nil {
-			continue
-		}
-
-		result, err = fbAgent.Stream(ctx, call)
-		if err == nil {
-			return result, fbModel, nil
-		}
-
-		if !isRetryableError(err) {
-			return nil, fbModel, err
-		}
-	}
-
-	return nil, cfg.PrimaryModel, fmt.Errorf("all models failed, last error: %w", err)
-}
-
 // isRetryableError checks if an error should trigger fallback.
 func isRetryableError(err error) bool {
 	if err == nil {
@@ -267,7 +264,7 @@ func isRetryableError(err error) bool {
 }
 
 // ====================================================================
-// Daemon mode: HTTP server
+// Daemon mode: HTTP server with full FEP SSE protocol
 // ====================================================================
 
 func runDaemon() error {
@@ -297,14 +294,32 @@ func runDaemon() error {
 	srv := &daemonServer{
 		bundle:      bundle,
 		cfg:         cfg,
+		sessions:    NewSessionStore(),
 		activeModel: cfg.PrimaryModel,
+		sessionCtx:  make(map[string]*sessionContext),
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /prompt", srv.handlePrompt)
-	mux.HandleFunc("POST /prompt/stream", srv.handlePromptStream)
-	mux.HandleFunc("POST /followup", srv.handleFollowup)
-	mux.HandleFunc("DELETE /abort", srv.handleAbort)
+
+	// Legacy endpoints (kept for backward compat, use default session)
+	mux.HandleFunc("POST /prompt", srv.handlePromptLegacy)
+	mux.HandleFunc("POST /prompt/stream", srv.handlePromptStreamLegacy)
+
+	// Session CRUD
+	mux.HandleFunc("POST /sessions", srv.handleSessionCreate)
+	mux.HandleFunc("GET /sessions", srv.handleSessionList)
+	mux.HandleFunc("GET /sessions/{id}", srv.handleSessionGet)
+	mux.HandleFunc("DELETE /sessions/{id}", srv.handleSessionDelete)
+
+	// Session-scoped prompt/stream
+	mux.HandleFunc("POST /sessions/{id}/prompt", srv.handleSessionPrompt)
+	mux.HandleFunc("POST /sessions/{id}/prompt/stream", srv.handleSessionPromptStream)
+
+	// Session-scoped control
+	mux.HandleFunc("POST /sessions/{id}/steer", srv.handleSessionSteer)
+	mux.HandleFunc("DELETE /sessions/{id}/abort", srv.handleSessionAbort)
+
+	// Health and status
 	mux.HandleFunc("GET /healthz", srv.handleHealthz)
 	mux.HandleFunc("GET /status", srv.handleStatus)
 
@@ -320,20 +335,63 @@ func runDaemon() error {
 	return httpSrv.ListenAndServe()
 }
 
+// sessionContext tracks per-session runtime state (cancel func, busy flag, steer msgs).
+type sessionContext struct {
+	mu       sync.Mutex
+	busy     bool
+	cancel   context.CancelFunc
+	steerMsg string // pending steer message, consumed on next step boundary
+}
+
+func (sc *sessionContext) popSteerMessage() string {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	msg := sc.steerMsg
+	sc.steerMsg = ""
+	return msg
+}
+
 type daemonServer struct {
 	bundle      *agentBundle
 	cfg         *Config
-	mu          sync.Mutex
-	busy        bool
-	lastOutput  string
+	sessions    *SessionStore
 	activeModel string
 	totalSteps  int
-	cancel      context.CancelFunc
-	messages    []fantasy.Message // conversation history
+
+	mu         sync.Mutex
+	sessionCtx map[string]*sessionContext // sessionId -> runtime context
 }
 
+// getOrCreateSessionCtx returns (or creates) the runtime context for a session.
+func (s *daemonServer) getOrCreateSessionCtx(sessionId string) *sessionContext {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sc, ok := s.sessionCtx[sessionId]
+	if !ok {
+		sc = &sessionContext{}
+		s.sessionCtx[sessionId] = sc
+	}
+	return sc
+}
+
+func (s *daemonServer) deleteSessionCtx(sessionId string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sc, ok := s.sessionCtx[sessionId]; ok {
+		sc.mu.Lock()
+		if sc.cancel != nil {
+			sc.cancel()
+		}
+		sc.mu.Unlock()
+		delete(s.sessionCtx, sessionId)
+	}
+}
+
+// ── Request/Response types ──
+
 type promptRequest struct {
-	Prompt string `json:"prompt"`
+	Prompt    string `json:"prompt"`
+	SessionID string `json:"session_id,omitempty"` // optional, for legacy endpoints
 }
 
 type promptResponse struct {
@@ -341,37 +399,122 @@ type promptResponse struct {
 	Model  string `json:"model"`
 }
 
-func (s *daemonServer) handlePrompt(w http.ResponseWriter, r *http.Request) {
+type sessionCreateRequest struct {
+	Title string `json:"title,omitempty"`
+}
+
+type sessionCreateResponse struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+type steerRequest struct {
+	Message string `json:"message"`
+}
+
+// ── Session CRUD handlers ──
+
+func (s *daemonServer) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
+	var req sessionCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// Allow empty body — title defaults to "New Session"
+		req = sessionCreateRequest{}
+	}
+
+	session := s.sessions.Create(req.Title)
+	slog.Info("session created", "id", session.ID, "title", session.Title)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(sessionCreateResponse{
+		ID:    session.ID,
+		Title: session.Title,
+	})
+}
+
+func (s *daemonServer) handleSessionList(w http.ResponseWriter, _ *http.Request) {
+	sessions := s.sessions.List()
+	infos := make([]SessionInfo, len(sessions))
+	for i, sess := range sessions {
+		infos[i] = sess.Info()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(infos)
+}
+
+func (s *daemonServer) handleSessionGet(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	session, ok := s.sessions.Get(id)
+	if !ok {
+		http.Error(w, `{"error":"session not found"}`, http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(session.Info())
+}
+
+func (s *daemonServer) handleSessionDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	// Cancel any active work
+	s.deleteSessionCtx(id)
+
+	if !s.sessions.Delete(id) {
+		http.Error(w, `{"error":"session not found"}`, http.StatusNotFound)
+		return
+	}
+
+	slog.Info("session deleted", "id", id)
+	w.Header().Set("Content-Type", "application/json")
+	io.WriteString(w, `{"ok":true}`)
+}
+
+// ── Session-scoped prompt (non-streaming) ──
+
+func (s *daemonServer) handleSessionPrompt(w http.ResponseWriter, r *http.Request) {
+	sessionId := r.PathValue("id")
+	sess, ok := s.sessions.Get(sessionId)
+	if !ok {
+		http.Error(w, `{"error":"session not found"}`, http.StatusNotFound)
+		return
+	}
+
 	var req promptRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Prompt == "" {
 		http.Error(w, `{"error":"prompt is required"}`, http.StatusBadRequest)
 		return
 	}
 
-	s.mu.Lock()
-	if s.busy {
-		s.mu.Unlock()
-		http.Error(w, `{"error":"Agent is busy"}`, http.StatusTooManyRequests)
+	sc := s.getOrCreateSessionCtx(sessionId)
+	sc.mu.Lock()
+	if sc.busy {
+		sc.mu.Unlock()
+		http.Error(w, `{"error":"session is busy"}`, http.StatusTooManyRequests)
 		return
 	}
-	s.busy = true
-	s.mu.Unlock()
+	sc.busy = true
+	sc.mu.Unlock()
 
 	defer func() {
-		s.mu.Lock()
-		s.busy = false
-		s.mu.Unlock()
+		sc.mu.Lock()
+		sc.busy = false
+		sc.cancel = nil
+		sc.mu.Unlock()
 	}()
 
 	ctx, cancel := context.WithCancel(r.Context())
-	s.mu.Lock()
-	s.cancel = cancel
-	s.mu.Unlock()
+	sc.mu.Lock()
+	sc.cancel = cancel
+	sc.mu.Unlock()
 	defer cancel()
+
+	messages := s.sessions.GetMessages(sessionId)
 
 	result, usedModel, err := generateWithFallback(ctx, s.cfg, s.bundle, fantasy.AgentCall{
 		Prompt:   req.Prompt,
-		Messages: s.messages,
+		Messages: messages,
 	})
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
@@ -379,116 +522,340 @@ func (s *daemonServer) handlePrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	output := result.Response.Content.Text()
+
+	// Persist conversation history
+	s.sessions.AppendMessages(sessionId, fantasy.NewUserMessage(req.Prompt))
+	for _, step := range result.Steps {
+		s.sessions.AppendMessages(sessionId, step.Messages...)
+	}
+
+	// Auto-title if this is the first message
+	if sess.MessageCount == 0 {
+		s.sessions.UpdateTitle(sessionId, truncate(req.Prompt, 80))
+	}
+
 	s.mu.Lock()
-	s.lastOutput = output
 	s.activeModel = usedModel
 	s.totalSteps += len(result.Steps)
-	s.messages = append(s.messages, fantasy.NewUserMessage(req.Prompt))
-	for _, step := range result.Steps {
-		s.messages = append(s.messages, step.Messages...)
-	}
 	s.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(promptResponse{Output: output, Model: usedModel})
 }
 
-func (s *daemonServer) handlePromptStream(w http.ResponseWriter, r *http.Request) {
+// ── Session-scoped streaming prompt with full FEP ──
+
+func (s *daemonServer) handleSessionPromptStream(w http.ResponseWriter, r *http.Request) {
+	sessionId := r.PathValue("id")
+	_, ok := s.sessions.Get(sessionId)
+	if !ok {
+		http.Error(w, `{"error":"session not found"}`, http.StatusNotFound)
+		return
+	}
+
 	var req promptRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Prompt == "" {
 		http.Error(w, `{"error":"prompt is required"}`, http.StatusBadRequest)
 		return
 	}
 
-	s.mu.Lock()
-	if s.busy {
-		s.mu.Unlock()
-		http.Error(w, `{"error":"Agent is busy"}`, http.StatusTooManyRequests)
+	sc := s.getOrCreateSessionCtx(sessionId)
+	sc.mu.Lock()
+	if sc.busy {
+		sc.mu.Unlock()
+		http.Error(w, `{"error":"session is busy"}`, http.StatusTooManyRequests)
 		return
 	}
-	s.busy = true
-	s.mu.Unlock()
+	sc.busy = true
+	sc.mu.Unlock()
 
 	defer func() {
-		s.mu.Lock()
-		s.busy = false
-		s.mu.Unlock()
+		sc.mu.Lock()
+		sc.busy = false
+		sc.cancel = nil
+		sc.mu.Unlock()
 	}()
 
+	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	flusher, _ := w.(http.Flusher)
+	w.Header().Set("X-Accel-Buffering", "no")
 
 	ctx, cancel := context.WithCancel(r.Context())
-	s.mu.Lock()
-	s.cancel = cancel
-	s.mu.Unlock()
+	sc.mu.Lock()
+	sc.cancel = cancel
+	sc.mu.Unlock()
 	defer cancel()
+
+	emit := newFEPEmitter(w)
+
+	// Get conversation history for this session
+	messages := s.sessions.GetMessages(sessionId)
+
+	// Step counter (shared across callbacks)
+	var stepCount int
+	var stepMu sync.Mutex
+
+	// Emit agent start
+	emit.emitAgentStart(sessionId, req.Prompt)
 
 	result, usedModel, err := streamWithFallback(ctx, s.cfg, s.bundle, fantasy.AgentStreamCall{
 		Prompt:   req.Prompt,
-		Messages: s.messages,
+		Messages: messages,
+
+		// ── Agent lifecycle ──
+
+		OnAgentStart: func() {
+			// Already emitted above before the call
+		},
+
+		OnAgentFinish: func(ar *fantasy.AgentResult) error {
+			// Handled after streamWithFallback returns for cleaner flow
+			return nil
+		},
+
+		// ── Step lifecycle ──
+
+		OnStepStart: func(stepNumber int) error {
+			stepMu.Lock()
+			stepCount = stepNumber
+			stepMu.Unlock()
+
+			emit.emitStepStart(stepNumber, sessionId)
+
+			// Inject steer message if pending
+			if msg := sc.popSteerMessage(); msg != "" {
+				s.sessions.AppendMessages(sessionId, fantasy.NewUserMessage("[STEER] "+msg))
+				slog.Info("steer message injected", "session", sessionId, "message", truncate(msg, 100))
+			}
+
+			return nil
+		},
+
+		OnStepFinish: func(sr fantasy.StepResult) error {
+			stepMu.Lock()
+			currentStep := stepCount
+			stepMu.Unlock()
+
+			toolCallCount := len(sr.Content.ToolCalls())
+
+			emit.emitStepFinish(currentStep, sessionId, sr.Usage, sr.FinishReason, toolCallCount)
+			return nil
+		},
+
+		// ── Text streaming ──
+
+		OnTextStart: func(id string) error {
+			emit.emitTextStart(id)
+			return nil
+		},
+
 		OnTextDelta: func(id, text string) error {
-			data, _ := json.Marshal(map[string]string{"type": "text_delta", "delta": text})
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			if flusher != nil {
-				flusher.Flush()
-			}
+			emit.emitTextDelta(id, text)
 			return nil
 		},
+
+		OnTextEnd: func(id string) error {
+			emit.emitTextEnd(id)
+			return nil
+		},
+
+		// ── Reasoning streaming ──
+
+		OnReasoningStart: func(id string, _ fantasy.ReasoningContent) error {
+			emit.emitReasoningStart(id)
+			return nil
+		},
+
+		OnReasoningDelta: func(id, text string) error {
+			emit.emitReasoningDelta(id, text)
+			return nil
+		},
+
+		OnReasoningEnd: func(id string, _ fantasy.ReasoningContent) error {
+			emit.emitReasoningEnd(id)
+			return nil
+		},
+
+		// ── Tool input streaming (the big UX win — Pi cannot do this) ──
+
+		OnToolInputStart: func(id, toolName string) error {
+			emit.emitToolInputStart(id, toolName)
+			return nil
+		},
+
+		OnToolInputDelta: func(id, delta string) error {
+			emit.emitToolInputDelta(id, delta)
+			return nil
+		},
+
+		OnToolInputEnd: func(id string) error {
+			emit.emitToolInputEnd(id)
+			return nil
+		},
+
+		// ── Tool execution ──
+
 		OnToolCall: func(tc fantasy.ToolCallContent) error {
-			data, _ := json.Marshal(map[string]string{"type": "tool_start", "tool": tc.ToolName})
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			if flusher != nil {
-				flusher.Flush()
-			}
+			emit.emitToolCall(tc.ToolCallID, tc.ToolName, tc.Input, tc.ProviderExecuted)
 			return nil
 		},
+
 		OnToolResult: func(tr fantasy.ToolResultContent) error {
-			data, _ := json.Marshal(map[string]any{"type": "tool_end", "tool": tr.ToolName})
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			if flusher != nil {
-				flusher.Flush()
+			// Extract output text and error status from the Result interface
+			var outputText string
+			var isError bool
+			var mediaType, mediaData string
+
+			switch v := tr.Result.(type) {
+			case fantasy.ToolResultOutputContentText:
+				outputText = v.Text
+			case fantasy.ToolResultOutputContentError:
+				outputText = v.Error.Error()
+				isError = true
+			case fantasy.ToolResultOutputContentMedia:
+				outputText = v.Text
+				mediaType = v.MediaType
+				mediaData = v.Data
 			}
+
+			emit.emitToolResult(tr.ToolCallID, tr.ToolName, outputText, isError, tr.ClientMetadata, mediaType, mediaData)
 			return nil
+		},
+
+		// ── Sources, warnings, stream finish ──
+
+		OnSource: func(src fantasy.SourceContent) error {
+			emit.emitSource(src.ID, string(src.SourceType), src.URL, src.Title)
+			return nil
+		},
+
+		OnWarnings: func(warnings []fantasy.CallWarning) error {
+			emit.emitWarnings(warnings)
+			return nil
+		},
+
+		OnStreamFinish: func(u fantasy.Usage, fr fantasy.FinishReason, _ fantasy.ProviderMetadata) error {
+			emit.emitStreamFinish(u, fr)
+			return nil
+		},
+
+		// ── Error ──
+
+		OnError: func(err error) {
+			emit.emitAgentError(sessionId, err, isRetryableError(err))
 		},
 	})
 
 	if err != nil {
-		data, _ := json.Marshal(map[string]string{"type": "error", "error": err.Error()})
-		fmt.Fprintf(w, "data: %s\n\n", data)
+		emit.emitAgentError(sessionId, err, isRetryableError(err))
 	} else {
-		output := result.Response.Content.Text()
-		s.mu.Lock()
-		s.lastOutput = output
-		s.activeModel = usedModel
-		s.totalSteps += len(result.Steps)
-		s.messages = append(s.messages, fantasy.NewUserMessage(req.Prompt))
+		// Persist conversation history
+		s.sessions.AppendMessages(sessionId, fantasy.NewUserMessage(req.Prompt))
 		for _, step := range result.Steps {
-			s.messages = append(s.messages, step.Messages...)
+			s.sessions.AppendMessages(sessionId, step.Messages...)
 		}
+
+		// Auto-title from first prompt
+		sess, ok := s.sessions.Get(sessionId)
+		if ok && sess.MessageCount <= 2 {
+			s.sessions.UpdateTitle(sessionId, truncate(req.Prompt, 80))
+		}
+
+		stepMu.Lock()
+		finalSteps := stepCount
+		stepMu.Unlock()
+
+		s.mu.Lock()
+		s.activeModel = usedModel
+		s.totalSteps += finalSteps
 		s.mu.Unlock()
 
-		data, _ := json.Marshal(map[string]string{"type": "complete", "output": output, "model": usedModel})
-		fmt.Fprintf(w, "data: %s\n\n", data)
+		// Emit agent finish with total usage
+		emit.emitAgentFinish(sessionId, result.TotalUsage, finalSteps, usedModel)
 	}
+
+	// Emit idle
+	emit.emitSessionIdle(sessionId)
 }
 
-func (s *daemonServer) handleFollowup(w http.ResponseWriter, r *http.Request) {
-	s.handlePrompt(w, r)
-}
+// ── Steer handler ──
 
-func (s *daemonServer) handleAbort(w http.ResponseWriter, _ *http.Request) {
-	s.mu.Lock()
-	if s.cancel != nil {
-		s.cancel()
+func (s *daemonServer) handleSessionSteer(w http.ResponseWriter, r *http.Request) {
+	sessionId := r.PathValue("id")
+	if _, ok := s.sessions.Get(sessionId); !ok {
+		http.Error(w, `{"error":"session not found"}`, http.StatusNotFound)
+		return
 	}
-	s.busy = false
-	s.mu.Unlock()
+
+	var req steerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Message == "" {
+		http.Error(w, `{"error":"message is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	sc := s.getOrCreateSessionCtx(sessionId)
+	sc.mu.Lock()
+	sc.steerMsg = req.Message
+	sc.mu.Unlock()
+
+	slog.Info("steer message queued", "session", sessionId, "message", truncate(req.Message, 100))
+
 	w.Header().Set("Content-Type", "application/json")
 	io.WriteString(w, `{"ok":true}`)
 }
+
+// ── Abort handler (per-session) ──
+
+func (s *daemonServer) handleSessionAbort(w http.ResponseWriter, r *http.Request) {
+	sessionId := r.PathValue("id")
+
+	sc := s.getOrCreateSessionCtx(sessionId)
+	sc.mu.Lock()
+	if sc.cancel != nil {
+		sc.cancel()
+	}
+	sc.busy = false
+	sc.mu.Unlock()
+
+	slog.Info("session aborted", "session", sessionId)
+
+	w.Header().Set("Content-Type", "application/json")
+	io.WriteString(w, `{"ok":true}`)
+}
+
+// ── Legacy endpoints (backward compat — create/use default session) ──
+
+const legacySessionID = "__legacy__"
+
+func (s *daemonServer) ensureLegacySession() {
+	if _, ok := s.sessions.Get(legacySessionID); !ok {
+		// Manually create since we need a fixed ID
+		s.sessions.mu.Lock()
+		s.sessions.sessions[legacySessionID] = &Session{
+			ID:       legacySessionID,
+			Title:    "Legacy Session",
+			Messages: []fantasy.Message{},
+		}
+		s.sessions.mu.Unlock()
+	}
+}
+
+func (s *daemonServer) handlePromptLegacy(w http.ResponseWriter, r *http.Request) {
+	s.ensureLegacySession()
+	// Rewrite the path value so handleSessionPrompt can read it
+	r.SetPathValue("id", legacySessionID)
+	s.handleSessionPrompt(w, r)
+}
+
+func (s *daemonServer) handlePromptStreamLegacy(w http.ResponseWriter, r *http.Request) {
+	s.ensureLegacySession()
+	r.SetPathValue("id", legacySessionID)
+	s.handleSessionPromptStream(w, r)
+}
+
+// ── Health and status ──
 
 func (s *daemonServer) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -497,13 +864,30 @@ func (s *daemonServer) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 
 func (s *daemonServer) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	model := s.activeModel
+	steps := s.totalSteps
+	s.mu.Unlock()
+
+	// Count busy sessions
+	busySessions := 0
+	s.mu.Lock()
+	for _, sc := range s.sessionCtx {
+		sc.mu.Lock()
+		if sc.busy {
+			busySessions++
+		}
+		sc.mu.Unlock()
+	}
+	s.mu.Unlock()
+
+	sessionCount := len(s.sessions.List())
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"busy":   s.busy,
-		"output": s.lastOutput,
-		"model":  s.activeModel,
-		"steps":  s.totalSteps,
+		"model":         model,
+		"total_steps":   steps,
+		"sessions":      sessionCount,
+		"busy_sessions": busySessions,
 	})
 }
 
@@ -591,7 +975,15 @@ func newRunAgentTool(k8s *K8sClient) fantasy.AgentTool {
 			if err != nil {
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("Failed to create AgentRun: %s", err)), nil
 			}
-			return fantasy.NewTextResponse(fmt.Sprintf("AgentRun %s created for agent %q", run.Name, input.Agent)), nil
+
+			resp := fantasy.NewTextResponse(fmt.Sprintf("AgentRun %s created for agent %q", run.Name, input.Agent))
+			resp = fantasy.WithResponseMetadata(resp, map[string]any{
+				"ui":        "agent-run",
+				"agent":     input.Agent,
+				"runName":   run.Name,
+				"namespace": os.Getenv("AGENT_NAMESPACE"),
+			})
+			return resp, nil
 		})
 }
 
@@ -618,7 +1010,15 @@ func newGetAgentRunTool(k8s *K8sClient) fantasy.AgentTool {
 			if err != nil {
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("Failed to get AgentRun: %s", err)), nil
 			}
-			return fantasy.NewTextResponse(fmt.Sprintf("Phase: %s\nOutput: %s", status.Phase, status.Output)), nil
+
+			resp := fantasy.NewTextResponse(fmt.Sprintf("Phase: %s\nOutput: %s", status.Phase, status.Output))
+			resp = fantasy.WithResponseMetadata(resp, map[string]any{
+				"ui":     "agent-run-status",
+				"name":   input.Name,
+				"phase":  status.Phase,
+				"output": status.Output,
+			})
+			return resp, nil
 		})
 }
 

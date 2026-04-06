@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"charm.land/fantasy"
 )
@@ -54,12 +55,34 @@ func newBashTool() fantasy.AgentTool {
 			if input.Command == "" {
 				return fantasy.NewTextErrorResponse("command is required"), nil
 			}
+
+			cwd, _ := os.Getwd()
+			start := time.Now()
+
 			cmd := exec.CommandContext(ctx, "bash", "-c", input.Command)
 			out, err := cmd.CombinedOutput()
-			if err != nil {
-				return fantasy.NewTextErrorResponse(fmt.Sprintf("%s\n%s", string(out), err.Error())), nil
+
+			elapsed := time.Since(start)
+
+			exitCode := 0
+			if cmd.ProcessState != nil {
+				exitCode = cmd.ProcessState.ExitCode()
 			}
-			return fantasy.NewTextResponse(string(out)), nil
+
+			metadata := map[string]any{
+				"ui":       "terminal",
+				"command":  input.Command,
+				"exitCode": exitCode,
+				"cwd":      cwd,
+				"duration": elapsed.Milliseconds(),
+			}
+
+			if err != nil {
+				result := fantasy.NewTextErrorResponse(fmt.Sprintf("%s\n%s", string(out), err.Error()))
+				return fantasy.WithResponseMetadata(result, metadata), nil
+			}
+			result := fantasy.NewTextResponse(string(out))
+			return fantasy.WithResponseMetadata(result, metadata), nil
 		})
 }
 
@@ -83,22 +106,46 @@ func newReadTool() fantasy.AgentTool {
 				return fantasy.NewTextErrorResponse(err.Error()), nil
 			}
 			content := string(data)
+			lines := strings.Split(content, "\n")
+			lineCount := len(lines)
+
 			if input.Offset > 0 || input.Limit > 0 {
-				lines := strings.Split(content, "\n")
 				start := 0
 				if input.Offset > 0 {
 					start = input.Offset - 1
 				}
 				if start >= len(lines) {
-					return fantasy.NewTextResponse(""), nil
+					metadata := map[string]any{
+						"ui":        "code",
+						"filePath":  input.Path,
+						"offset":    input.Offset,
+						"limit":     input.Limit,
+						"language":  detectLanguage(input.Path),
+						"lineCount": 0,
+					}
+					result := fantasy.NewTextResponse("")
+					return fantasy.WithResponseMetadata(result, metadata), nil
 				}
 				end := len(lines)
 				if input.Limit > 0 && start+input.Limit < end {
 					end = start + input.Limit
 				}
-				content = strings.Join(lines[start:end], "\n")
+				lines = lines[start:end]
+				lineCount = len(lines)
+				content = strings.Join(lines, "\n")
 			}
-			return fantasy.NewTextResponse(content), nil
+
+			metadata := map[string]any{
+				"ui":        "code",
+				"filePath":  input.Path,
+				"offset":    input.Offset,
+				"limit":     input.Limit,
+				"language":  detectLanguage(input.Path),
+				"lineCount": lineCount,
+			}
+
+			result := fantasy.NewTextResponse(content)
+			return fantasy.WithResponseMetadata(result, metadata), nil
 		})
 }
 
@@ -138,7 +185,15 @@ func newEditTool() fantasy.AgentTool {
 			if err := os.WriteFile(input.Path, []byte(content), 0644); err != nil {
 				return fantasy.NewTextErrorResponse(err.Error()), nil
 			}
-			return fantasy.NewTextResponse(fmt.Sprintf("Applied %d edit(s) to %s", len(input.Edits), input.Path)), nil
+
+			metadata := map[string]any{
+				"ui":        "diff",
+				"filePath":  input.Path,
+				"editCount": len(input.Edits),
+			}
+
+			result := fantasy.NewTextResponse(fmt.Sprintf("Applied %d edit(s) to %s", len(input.Edits), input.Path))
+			return fantasy.WithResponseMetadata(result, metadata), nil
 		})
 }
 
@@ -162,7 +217,16 @@ func newWriteTool() fantasy.AgentTool {
 			if err := os.WriteFile(input.Path, []byte(input.Content), 0644); err != nil {
 				return fantasy.NewTextErrorResponse(err.Error()), nil
 			}
-			return fantasy.NewTextResponse(fmt.Sprintf("Wrote %d bytes to %s", len(input.Content), input.Path)), nil
+
+			metadata := map[string]any{
+				"ui":       "file-created",
+				"filePath": input.Path,
+				"size":     len(input.Content),
+				"language": detectLanguage(input.Path),
+			}
+
+			result := fantasy.NewTextResponse(fmt.Sprintf("Wrote %d bytes to %s", len(input.Content), input.Path))
+			return fantasy.WithResponseMetadata(result, metadata), nil
 		})
 }
 
@@ -186,10 +250,29 @@ func newGrepTool() fantasy.AgentTool {
 			}
 			cmd := exec.CommandContext(ctx, "rg", "--line-number", "--no-heading", input.Pattern, path)
 			out, _ := cmd.CombinedOutput()
-			if len(out) == 0 {
-				return fantasy.NewTextResponse("No matches found."), nil
+
+			output := string(out)
+			matchCount := 0
+			if len(out) > 0 {
+				matchCount = strings.Count(output, "\n")
+				if len(output) > 0 && !strings.HasSuffix(output, "\n") {
+					matchCount++
+				}
 			}
-			return fantasy.NewTextResponse(string(out)), nil
+
+			metadata := map[string]any{
+				"ui":         "search-results",
+				"pattern":    input.Pattern,
+				"path":       path,
+				"matchCount": matchCount,
+			}
+
+			if len(out) == 0 {
+				result := fantasy.NewTextResponse("No matches found.")
+				return fantasy.WithResponseMetadata(result, metadata), nil
+			}
+			result := fantasy.NewTextResponse(output)
+			return fantasy.WithResponseMetadata(result, metadata), nil
 		})
 }
 
@@ -220,7 +303,15 @@ func newLsTool() fantasy.AgentTool {
 					fmt.Fprintf(&sb, "%s\n", e.Name())
 				}
 			}
-			return fantasy.NewTextResponse(sb.String()), nil
+
+			metadata := map[string]any{
+				"ui":         "file-tree",
+				"path":       path,
+				"entryCount": len(entries),
+			}
+
+			result := fantasy.NewTextResponse(sb.String())
+			return fantasy.WithResponseMetadata(result, metadata), nil
 		})
 }
 
@@ -256,10 +347,20 @@ func newGlobTool() fantasy.AgentTool {
 			if err != nil {
 				return fantasy.NewTextErrorResponse(err.Error()), nil
 			}
-			if len(matches) == 0 {
-				return fantasy.NewTextResponse("No files matched."), nil
+
+			metadata := map[string]any{
+				"ui":      "file-tree",
+				"pattern": input.Pattern,
+				"path":    root,
+				"count":   len(matches),
 			}
-			return fantasy.NewTextResponse(strings.Join(matches, "\n")), nil
+
+			if len(matches) == 0 {
+				result := fantasy.NewTextResponse("No files matched.")
+				return fantasy.WithResponseMetadata(result, metadata), nil
+			}
+			result := fantasy.NewTextResponse(strings.Join(matches, "\n"))
+			return fantasy.WithResponseMetadata(result, metadata), nil
 		})
 }
 
@@ -278,10 +379,18 @@ func newFetchTool() fantasy.AgentTool {
 			}
 			cmd := exec.CommandContext(ctx, "curl", "-sSL", "--max-time", "30", input.URL)
 			out, err := cmd.CombinedOutput()
-			if err != nil {
-				return fantasy.NewTextErrorResponse(fmt.Sprintf("%s\n%s", string(out), err.Error())), nil
+
+			metadata := map[string]any{
+				"ui":  "web-fetch",
+				"url": input.URL,
 			}
-			return fantasy.NewTextResponse(string(out)), nil
+
+			if err != nil {
+				result := fantasy.NewTextErrorResponse(fmt.Sprintf("%s\n%s", string(out), err.Error()))
+				return fantasy.WithResponseMetadata(result, metadata), nil
+			}
+			result := fantasy.NewTextResponse(string(out))
+			return fantasy.WithResponseMetadata(result, metadata), nil
 		})
 }
 
@@ -292,4 +401,74 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// detectLanguage maps a file path's extension to a language identifier.
+func detectLanguage(path string) string {
+	base := strings.ToLower(filepath.Base(path))
+	ext := strings.ToLower(filepath.Ext(path))
+
+	// Handle extensionless filenames.
+	if base == "dockerfile" {
+		return "dockerfile"
+	}
+
+	switch ext {
+	case ".go":
+		return "go"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".js", ".jsx":
+		return "javascript"
+	case ".py":
+		return "python"
+	case ".rs":
+		return "rust"
+	case ".rb":
+		return "ruby"
+	case ".java":
+		return "java"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".hpp":
+		return "cpp"
+	case ".cs":
+		return "csharp"
+	case ".swift":
+		return "swift"
+	case ".kt":
+		return "kotlin"
+	case ".scala":
+		return "scala"
+	case ".sh", ".bash":
+		return "bash"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".json":
+		return "json"
+	case ".toml":
+		return "toml"
+	case ".xml":
+		return "xml"
+	case ".html":
+		return "html"
+	case ".css":
+		return "css"
+	case ".scss":
+		return "scss"
+	case ".sql":
+		return "sql"
+	case ".md":
+		return "markdown"
+	case ".dockerfile":
+		return "dockerfile"
+	case ".tf":
+		return "hcl"
+	case ".proto":
+		return "protobuf"
+	case ".graphql":
+		return "graphql"
+	default:
+		return ""
+	}
 }
