@@ -1,0 +1,68 @@
+apiVersion: agents.agenticops.io/v1alpha1
+kind: Agent
+metadata:
+  name: code-review-agent
+  labels:
+    app.kubernetes.io/name: agenticops-core
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  mode: daemon
+  model: anthropic/claude-sonnet-4-20250514
+  thinkingLevel: medium
+
+  providers:
+    - name: anthropic
+      apiKeySecret:
+        name: llm-api-keys
+        key: ANTHROPIC_API_KEY
+
+  fallbackModels:
+    - openai/gpt-4o
+
+  systemPrompt: |
+    You are a senior code reviewer. Analyze code changes for bugs,
+    security issues, and style violations. Be concise and actionable.
+
+  builtinTools:
+    - read
+    - grep
+    - find
+    - ls
+
+  mcpServers:
+    - name: gitlab-mcp
+      permissions:
+        mode: allow
+        rules:
+          - "get_merge_request"
+          - "get_merge_request_changes"
+          - "create_merge_request_note"
+
+  storage:
+    size: 5Gi
+    storageClass: local-path
+
+  compaction:
+    strategy: auto
+
+  concurrency:
+    maxRuns: 3
+    policy: queue
+
+  toolHooks:
+    blockedCommands:
+      - "rm -rf /"
+      - "curl"
+      - "wget"
+    allowedPaths:
+      - /workspace
+
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+
+  timeout: "15m"
+  serviceAccountName: agent-sa

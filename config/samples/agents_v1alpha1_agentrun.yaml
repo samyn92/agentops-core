@@ -1,0 +1,15 @@
+apiVersion: agents.agenticops.io/v1alpha1
+kind: AgentRun
+metadata:
+  name: review-run-001
+  labels:
+    app.kubernetes.io/name: agenticops-core
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  agentRef: code-review-agent
+  source: channel
+  sourceRef: gitlab-mr-channel
+  prompt: |
+    Review the merge request "Add user authentication" in project
+    samyn92/my-app. MR URL: https://gitlab.com/samyn92/my-app/-/merge_requests/42
+    Focus on security issues in the authentication flow.

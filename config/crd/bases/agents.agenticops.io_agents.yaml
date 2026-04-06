@@ -1,0 +1,670 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: agents.agents.agenticops.io
+spec:
+  group: agents.agenticops.io
+  names:
+    kind: Agent
+    listKind: AgentList
+    plural: agents
+    shortNames:
+    - ag
+    singular: agent
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.mode
+      name: Mode
+      type: string
+    - jsonPath: .spec.model
+      name: Model
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Agent is the Schema for the agents API.
+          One CRD for all agents. mode controls lifecycle:
+          daemon = Deployment + PVC + Service (always running).
+          task = Job template (one prompt, exits).
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: AgentSpec defines the desired state of Agent.
+            properties:
+              builtinTools:
+                description: |-
+                  Pi built-in tools to enable. Omit or [] for OCI-only agents.
+                  Valid: read, bash, edit, write, grep, find, ls.
+                items:
+                  type: string
+                type: array
+              compaction:
+                description: Session compaction settings for daemon agents.
+                properties:
+                  enabled:
+                    description: 'Whether compaction is enabled. Default: true.'
+                    type: boolean
+                  strategy:
+                    default: auto
+                    description: 'Strategy: auto (default), manual, or off.'
+                    enum:
+                    - auto
+                    - manual
+                    - "off"
+                    type: string
+                type: object
+              concurrency:
+                description: Concurrency control for parallel AgentRun execution.
+                properties:
+                  maxRuns:
+                    default: 1
+                    description: 'Maximum concurrent runs. Default: 1.'
+                    minimum: 1
+                    type: integer
+                  policy:
+                    default: queue
+                    description: 'Policy when at max: queue, reject, or replace.'
+                    enum:
+                    - queue
+                    - reject
+                    - replace
+                    type: string
+                type: object
+              contextFiles:
+                description: Context files loaded from ConfigMaps (e.g. AGENTS.md).
+                items:
+                  description: ContextFileRef loads an AGENTS.md or similar context
+                    file from a ConfigMap.
+                  properties:
+                    configMapRef:
+                      description: ConfigMap reference (name + key).
+                      properties:
+                        key:
+                          description: Key within the Secret.
+                          type: string
+                        name:
+                          description: Name of the Secret.
+                          type: string
+                      required:
+                      - key
+                      - name
+                      type: object
+                  required:
+                  - configMapRef
+                  type: object
+                type: array
+              env:
+                additionalProperties:
+                  type: string
+                description: Plain-text environment variables.
+                type: object
+              extensions:
+                description: Additional Pi extensions loaded from OCI.
+                items:
+                  description: ExtensionRef loads a Pi extension from OCI with optional
+                    env/secrets.
+                  properties:
+                    env:
+                      additionalProperties:
+                        type: string
+                      description: Plain-text environment variables.
+                      type: object
+                    name:
+                      description: Logical name.
+                      type: string
+                    ociRef:
+                      description: OCI artifact containing the extension.
+                      properties:
+                        digest:
+                          description: Optional digest for pinning (e.g. sha256:abc...).
+                          type: string
+                        pullPolicy:
+                          description: 'Pull policy: Always, IfNotPresent, Never.
+                            Defaults based on tag.'
+                          enum:
+                          - Always
+                          - IfNotPresent
+                          - Never
+                          type: string
+                        pullSecret:
+                          description: Optional pull secret for private registries.
+                          properties:
+                            key:
+                              description: Key within the Secret.
+                              type: string
+                            name:
+                              description: Name of the Secret.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        ref:
+                          description: Full OCI reference (e.g. ghcr.io/org/tool:1.0.0).
+                          type: string
+                      required:
+                      - ref
+                      type: object
+                    secrets:
+                      description: Secret-backed environment variables.
+                      items:
+                        description: SecretEnvVar injects a Secret key as an environment
+                          variable.
+                        properties:
+                          name:
+                            description: Environment variable name.
+                            type: string
+                          secretRef:
+                            description: Reference to the secret key.
+                            properties:
+                              key:
+                                description: Key within the Secret.
+                                type: string
+                              name:
+                                description: Name of the Secret.
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                        required:
+                        - name
+                        - secretRef
+                        type: object
+                      type: array
+                  required:
+                  - name
+                  - ociRef
+                  type: object
+                type: array
+              fallbackModels:
+                description: |-
+                  Fallback models tried in order if the primary model fails.
+                  Each must reference a provider listed in providers.
+                items:
+                  type: string
+                type: array
+              image:
+                default: ghcr.io/samyn92/agent-runtime:latest
+                description: Container image for the agent runtime.
+                type: string
+              imagePullPolicy:
+                default: IfNotPresent
+                description: Image pull policy.
+                enum:
+                - Always
+                - IfNotPresent
+                - Never
+                type: string
+              mcpServers:
+                description: Shared MCPServer bindings with per-agent permissions.
+                items:
+                  description: MCPServerBinding references a shared MCPServer with
+                    per-agent permissions.
+                  properties:
+                    directTools:
+                      description: MCP tools to promote to first-class Pi tools (registered
+                        directly, not via proxy).
+                      items:
+                        type: string
+                      type: array
+                    name:
+                      description: Name of the MCPServer CR to bind.
+                      type: string
+                    permissions:
+                      description: Per-agent deny/allow rules for MCP tool calls.
+                      properties:
+                        mode:
+                          description: 'Mode: "deny" blocks matching rules, "allow"
+                            only permits matching rules.'
+                          enum:
+                          - deny
+                          - allow
+                          type: string
+                        rules:
+                          description: Rules in the form "tool_name", "tool_name:arg=value",
+                            or "tool_name:arg=pattern*".
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - mode
+                      - rules
+                      type: object
+                  required:
+                  - name
+                  type: object
+                type: array
+              mode:
+                description: 'Mode: daemon (Deployment+PVC+Service) or task (Job template).'
+                enum:
+                - daemon
+                - task
+                type: string
+              model:
+                description: Primary model in provider/model format (e.g. anthropic/claude-sonnet-4-20250514).
+                minLength: 1
+                type: string
+              networkPolicy:
+                description: Network policy configuration.
+                properties:
+                  enabled:
+                    description: Whether to create a NetworkPolicy.
+                    type: boolean
+                type: object
+              providers:
+                description: LLM providers with API key references. At least one required.
+                items:
+                  description: ProviderRef configures an LLM provider.
+                  properties:
+                    apiKeySecret:
+                      description: Secret containing the API key.
+                      properties:
+                        key:
+                          description: Key within the Secret.
+                          type: string
+                        name:
+                          description: Name of the Secret.
+                          type: string
+                      required:
+                      - key
+                      - name
+                      type: object
+                    name:
+                      description: Provider name (e.g. anthropic, openai, google).
+                      minLength: 1
+                      type: string
+                  required:
+                  - apiKeySecret
+                  - name
+                  type: object
+                minItems: 1
+                type: array
+              resources:
+                description: Compute resources for the agent container.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This is an alpha field and requires enabling the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
+              schedule:
+                description: Cron schedule for creating periodic AgentRuns.
+                type: string
+              schedulePrompt:
+                description: Prompt used when schedule triggers an AgentRun.
+                type: string
+              secrets:
+                description: Secret-backed environment variables.
+                items:
+                  description: SecretEnvVar injects a Secret key as an environment
+                    variable.
+                  properties:
+                    name:
+                      description: Environment variable name.
+                      type: string
+                    secretRef:
+                      description: Reference to the secret key.
+                      properties:
+                        key:
+                          description: Key within the Secret.
+                          type: string
+                        name:
+                          description: Name of the Secret.
+                          type: string
+                      required:
+                      - key
+                      - name
+                      type: object
+                  required:
+                  - name
+                  - secretRef
+                  type: object
+                type: array
+              serviceAccountName:
+                description: ServiceAccount for the agent pod.
+                type: string
+              skills:
+                description: Skills loaded from OCI, ConfigMap, or inline content.
+                items:
+                  description: |-
+                    ResourceRef references a resource from OCI, ConfigMap, or inline content.
+                    Exactly one of ociRef, configMapRef, or content must be set.
+                  properties:
+                    configMapRef:
+                      description: ConfigMap reference (name + key).
+                      properties:
+                        key:
+                          description: Key within the Secret.
+                          type: string
+                        name:
+                          description: Name of the Secret.
+                          type: string
+                      required:
+                      - key
+                      - name
+                      type: object
+                    content:
+                      description: Inline content (< 4KB, for prototyping).
+                      type: string
+                    name:
+                      description: Logical name for this resource.
+                      type: string
+                    ociRef:
+                      description: OCI artifact reference.
+                      properties:
+                        digest:
+                          description: Optional digest for pinning (e.g. sha256:abc...).
+                          type: string
+                        pullPolicy:
+                          description: 'Pull policy: Always, IfNotPresent, Never.
+                            Defaults based on tag.'
+                          enum:
+                          - Always
+                          - IfNotPresent
+                          - Never
+                          type: string
+                        pullSecret:
+                          description: Optional pull secret for private registries.
+                          properties:
+                            key:
+                              description: Key within the Secret.
+                              type: string
+                            name:
+                              description: Name of the Secret.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        ref:
+                          description: Full OCI reference (e.g. ghcr.io/org/tool:1.0.0).
+                          type: string
+                      required:
+                      - ref
+                      type: object
+                  required:
+                  - name
+                  type: object
+                type: array
+              storage:
+                description: Persistent storage for daemon agents (PVC, RWO).
+                properties:
+                  size:
+                    description: PVC size (e.g. "10Gi").
+                    type: string
+                  storageClass:
+                    description: Storage class name.
+                    type: string
+                required:
+                - size
+                type: object
+              systemPrompt:
+                description: System prompt injected at the start of every session.
+                type: string
+              thinkingLevel:
+                description: Thinking level for the model.
+                enum:
+                - "off"
+                - minimal
+                - low
+                - medium
+                - high
+                - xhigh
+                type: string
+              timeout:
+                default: 10m
+                description: Timeout for task jobs or per-prompt timeout for daemons
+                  (e.g. "10m").
+                type: string
+              toolHooks:
+                description: Runtime security hooks for tool calls.
+                properties:
+                  allowedPaths:
+                    description: Restrict file tool paths to these prefixes (absolute
+                      paths only).
+                    items:
+                      type: string
+                    type: array
+                  auditTools:
+                    description: Tools to audit-log via afterToolCall hook.
+                    items:
+                      type: string
+                    type: array
+                  blockedCommands:
+                    description: Patterns blocked in bash commands (substring match).
+                    items:
+                      type: string
+                    type: array
+                type: object
+              toolRefs:
+                description: OCI packages, ConfigMaps, or inline JS modules providing
+                  tools.
+                items:
+                  description: |-
+                    ResourceRef references a resource from OCI, ConfigMap, or inline content.
+                    Exactly one of ociRef, configMapRef, or content must be set.
+                  properties:
+                    configMapRef:
+                      description: ConfigMap reference (name + key).
+                      properties:
+                        key:
+                          description: Key within the Secret.
+                          type: string
+                        name:
+                          description: Name of the Secret.
+                          type: string
+                      required:
+                      - key
+                      - name
+                      type: object
+                    content:
+                      description: Inline content (< 4KB, for prototyping).
+                      type: string
+                    name:
+                      description: Logical name for this resource.
+                      type: string
+                    ociRef:
+                      description: OCI artifact reference.
+                      properties:
+                        digest:
+                          description: Optional digest for pinning (e.g. sha256:abc...).
+                          type: string
+                        pullPolicy:
+                          description: 'Pull policy: Always, IfNotPresent, Never.
+                            Defaults based on tag.'
+                          enum:
+                          - Always
+                          - IfNotPresent
+                          - Never
+                          type: string
+                        pullSecret:
+                          description: Optional pull secret for private registries.
+                          properties:
+                            key:
+                              description: Key within the Secret.
+                              type: string
+                            name:
+                              description: Name of the Secret.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        ref:
+                          description: Full OCI reference (e.g. ghcr.io/org/tool:1.0.0).
+                          type: string
+                      required:
+                      - ref
+                      type: object
+                  required:
+                  - name
+                  type: object
+                type: array
+            required:
+            - mode
+            - model
+            - providers
+            type: object
+          status:
+            description: AgentStatus defines the observed state of Agent.
+            properties:
+              activeModel:
+                description: Currently active model (may differ from spec.model if
+                  fallback triggered).
+                type: string
+              conditions:
+                description: Standard conditions.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              phase:
+                description: 'Current phase: Pending, Running (daemon), Ready (task),
+                  Failed.'
+                type: string
+              readyReplicas:
+                description: Number of ready replicas (daemon only).
+                format: int32
+                type: integer
+              serviceURL:
+                description: Service URL for daemon agents (e.g. http://agent.ns.svc:4096).
+                type: string
+              storagePVC:
+                description: Name of the PVC created for daemon agents.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -1,0 +1,7 @@
+## Append samples of your project ##
+resources:
+- agents_v1alpha1_agent.yaml
+- agents_v1alpha1_channel.yaml
+- agents_v1alpha1_agentrun.yaml
+- agents_v1alpha1_mcpserver.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
