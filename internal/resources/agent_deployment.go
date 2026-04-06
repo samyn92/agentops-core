@@ -538,7 +538,7 @@ func buildGatewaySidecar(binding agentsv1alpha1.MCPServerBinding, mcpServers []a
 
 	return &corev1.Container{
 		Name:  fmt.Sprintf("gw-%s", binding.Name),
-		Image: "ghcr.io/samyn92/mcp-gateway:latest",
+		Image: MCPGatewayImage,
 		Env: []corev1.EnvVar{
 			{Name: "GATEWAY_MODE", Value: "proxy"},
 			{Name: "GATEWAY_UPSTREAM", Value: upstream},

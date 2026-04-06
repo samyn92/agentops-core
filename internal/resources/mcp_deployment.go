@@ -67,16 +67,34 @@ func BuildMCPServerDeployment(mcp *agentsv1alpha1.MCPServer) *appsv1.Deployment 
 		})
 	}
 
-	// Gateway spawn mode wrapping the MCP server process
+	// Gateway spawn mode: the mcp-gateway binary wraps the MCP server process
+	// over stdio and exposes it as HTTP+SSE. An init container copies the
+	// gateway binary into a shared volume so the main container (spec.image)
+	// can exec it as its entrypoint.
+	gatewayImage := MCPGatewayImage
+	gatewayVolume := "gateway-bin"
+
 	env = append(env,
 		corev1.EnvVar{Name: "GATEWAY_MODE", Value: "spawn"},
 		corev1.EnvVar{Name: "GATEWAY_PORT", Value: fmt.Sprintf("%d", port)},
 	)
 
+	// Set GATEWAY_COMMAND from spec.command so the gateway knows what to spawn.
+	if len(mcp.Spec.Command) > 0 {
+		var cmdParts []string
+		cmdParts = append(cmdParts, mcp.Spec.Command...)
+		env = append(env, corev1.EnvVar{
+			Name:  "GATEWAY_COMMAND",
+			Value: joinCommand(cmdParts),
+		})
+	}
+
 	container := corev1.Container{
 		Name:  "mcp-server",
-		Image: "ghcr.io/samyn92/mcp-gateway:latest",
-		Env:   env,
+		Image: mcp.Spec.Image,
+		// Override entrypoint to run the gateway binary (copied by init container).
+		Command: []string{"/gateway/mcp-gateway"},
+		Env:     env,
 		Ports: []corev1.ContainerPort{
 			{
 				Name:          "mcp",
@@ -84,14 +102,17 @@ func BuildMCPServerDeployment(mcp *agentsv1alpha1.MCPServer) *appsv1.Deployment 
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      gatewayVolume,
+				MountPath: "/gateway",
+				ReadOnly:  true,
+			},
+		},
 	}
 
 	if mcp.Spec.Resources != nil {
 		container.Resources = *mcp.Spec.Resources
-	}
-
-	if len(mcp.Spec.Command) > 0 {
-		container.Command = mcp.Spec.Command
 	}
 
 	// Health check
@@ -128,8 +149,33 @@ func BuildMCPServerDeployment(mcp *agentsv1alpha1.MCPServer) *appsv1.Deployment 
 		}
 	}
 
+	// Init container copies the mcp-gateway binary from its image into the shared volume.
+	// The gateway image is distroless, so we use the binary itself to copy
+	// (the entrypoint is /mcp-gateway; we use "cat" via shell-less copy trick).
+	initContainer := corev1.Container{
+		Name:    "copy-gateway",
+		Image:   gatewayImage,
+		Command: []string{"/mcp-gateway"},
+		Args:    []string{"--copy-to=/gateway/mcp-gateway"},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      gatewayVolume,
+				MountPath: "/gateway",
+			},
+		},
+	}
+
 	podSpec := corev1.PodSpec{
-		Containers: []corev1.Container{container},
+		InitContainers: []corev1.Container{initContainer},
+		Containers:     []corev1.Container{container},
+		Volumes: []corev1.Volume{
+			{
+				Name: gatewayVolume,
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
+				},
+			},
+		},
 	}
 
 	if mcp.Spec.ServiceAccountName != "" {

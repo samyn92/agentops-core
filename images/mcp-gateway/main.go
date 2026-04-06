@@ -23,6 +23,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -37,6 +38,17 @@ import (
 )
 
 func main() {
+	// Support --copy-to flag: copy the binary to the specified path and exit.
+	// Used by init containers to inject the gateway binary into shared volumes.
+	if len(os.Args) == 2 && strings.HasPrefix(os.Args[1], "--copy-to=") {
+		dest := strings.TrimPrefix(os.Args[1], "--copy-to=")
+		if err := copyBinary(dest); err != nil {
+			fmt.Fprintf(os.Stderr, "copy-to failed: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		Level: logLevel(),
 	}))
@@ -192,4 +204,26 @@ func logLevel() slog.Level {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+// copyBinary copies the current executable to dest with mode 0755.
+func copyBinary(dest string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve executable: %w", err)
+	}
+	src, err := os.Open(exe) //nolint:gosec // path from os.Executable
+	if err != nil {
+		return fmt.Errorf("open source: %w", err)
+	}
+	defer src.Close()
+	dst, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755) //nolint:gosec // operator-controlled path
+	if err != nil {
+		return fmt.Errorf("create dest: %w", err)
+	}
+	defer dst.Close()
+	if _, err := io.Copy(dst, src); err != nil {
+		return fmt.Errorf("copy: %w", err)
+	}
+	return nil
 }

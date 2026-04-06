@@ -20,6 +20,7 @@ package resources
 
 import (
 	"fmt"
+	"strings"
 
 	agentsv1alpha1 "github.com/samyn92/agenticops-core/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,6 +45,9 @@ const (
 
 	// CraneImage is the OCI puller used in init containers.
 	CraneImage = "gcr.io/go-containerregistry/crane:debug"
+
+	// MCPGatewayImage is the MCP protocol gateway image (spawn + proxy modes).
+	MCPGatewayImage = "ghcr.io/samyn92/mcp-gateway:latest"
 
 	// Volume names.
 	VolumeData       = "data"
@@ -104,4 +108,9 @@ func ChannelOwnerRef(ch *agentsv1alpha1.Channel) metav1.OwnerReference {
 // MCPServerOwnerRef builds an OwnerReference for an MCPServer CR.
 func MCPServerOwnerRef(mcp *agentsv1alpha1.MCPServer) metav1.OwnerReference {
 	return *metav1.NewControllerRef(mcp, agentsv1alpha1.GroupVersion.WithKind("MCPServer"))
+}
+
+// joinCommand joins command parts into a single space-separated string.
+func joinCommand(parts []string) string {
+	return strings.Join(parts, " ")
 }

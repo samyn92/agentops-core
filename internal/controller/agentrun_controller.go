@@ -94,6 +94,28 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// Set the mode from the agent
 	run.Status.Mode = agent.Spec.Mode
 
+	// For daemon mode, check that the Agent is Running before attempting to send a prompt.
+	// This avoids noisy HTTP errors when the agent pod isn't up yet (e.g. waiting on MCPServer deps).
+	if agent.Spec.Mode == agentsv1alpha1.AgentModeDaemon &&
+		run.Status.Phase != agentsv1alpha1.AgentRunPhaseRunning {
+		if agent.Status.Phase != agentsv1alpha1.AgentPhaseRunning {
+			if run.Status.Phase != agentsv1alpha1.AgentRunPhasePending {
+				run.Status.Phase = agentsv1alpha1.AgentRunPhasePending
+				meta.SetStatusCondition(&run.Status.Conditions, metav1.Condition{
+					Type:    "AgentReady",
+					Status:  metav1.ConditionFalse,
+					Reason:  "AgentNotRunning",
+					Message: fmt.Sprintf("Agent %q is in phase %q, waiting for Running", agent.Name, agent.Status.Phase),
+				})
+				if err := patchStatus(ctx, r.Client, run, statusPatch); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+			log.Info("Agent not running, requeuing", "agent", agent.Name, "agentPhase", agent.Status.Phase)
+			return ctrl.Result{RequeueAfter: requeueInterval}, nil
+		}
+	}
+
 	// Check concurrency
 	allowed, err := r.checkConcurrency(ctx, run, agent, statusPatch)
 	if err != nil {

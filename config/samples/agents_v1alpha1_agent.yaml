@@ -68,4 +68,3 @@ spec:
       memory: 512Mi
 
   timeout: "15m"
-  serviceAccountName: agent-sa
