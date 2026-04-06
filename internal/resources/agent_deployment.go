@@ -60,7 +60,7 @@ func BuildAgentDeployment(agent *agentsv1alpha1.Agent, mcpServers []agentsv1alph
 	}
 }
 
-// BuildAgentPodSpec creates the complete PodSpec for daemon or task mode.
+// buildAgentPodSpec creates the complete PodSpec for daemon or task mode.
 // taskMode=true uses emptyDir for /data instead of PVC.
 func buildAgentPodSpec(agent *agentsv1alpha1.Agent, mcpServers []agentsv1alpha1.MCPServer, taskMode bool) corev1.PodSpec {
 	// Volumes
@@ -98,22 +98,12 @@ func buildAgentPodSpec(agent *agentsv1alpha1.Agent, mcpServers []agentsv1alpha1.
 
 func buildVolumes(agent *agentsv1alpha1.Agent, taskMode bool) []corev1.Volume {
 	volumes := []corev1.Volume{
-		// Tools (emptyDir, populated by init containers)
+		// Tools (emptyDir, populated by init containers — shared across runtimes)
 		{
 			Name:         VolumeTools,
 			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 		},
-		// Extensions (emptyDir)
-		{
-			Name:         VolumeExtensions,
-			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-		},
-		// Skills (emptyDir)
-		{
-			Name:         VolumeSkills,
-			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-		},
-		// Operator config (ConfigMap)
+		// Operator config (ConfigMap — shared across runtimes)
 		{
 			Name: VolumeConfig,
 			VolumeSource: corev1.VolumeSource{
@@ -126,9 +116,27 @@ func buildVolumes(agent *agentsv1alpha1.Agent, taskMode bool) []corev1.Volume {
 		},
 	}
 
-	// Data volume: PVC for daemon with storage, emptyDir otherwise.
-	// Always provide a data volume since the runtime expects /data to exist.
-	if !taskMode && agent.Spec.Storage != nil {
+	// Pi-specific volumes: extensions, skills
+	if agent.Spec.Pi != nil {
+		volumes = append(volumes,
+			corev1.Volume{
+				Name:         VolumeExtensions,
+				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+			},
+			corev1.Volume{
+				Name:         VolumeSkills,
+				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+			},
+		)
+	}
+
+	// Data volume: PVC for daemon, emptyDir for task
+	if taskMode {
+		volumes = append(volumes, corev1.Volume{
+			Name:         VolumeData,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		})
+	} else if agent.Spec.Storage != nil {
 		volumes = append(volumes, corev1.Volume{
 			Name: VolumeData,
 			VolumeSource: corev1.VolumeSource{
@@ -136,11 +144,6 @@ func buildVolumes(agent *agentsv1alpha1.Agent, taskMode bool) []corev1.Volume {
 					ClaimName: ObjectName(agent.Name, "storage"),
 				},
 			},
-		})
-	} else {
-		volumes = append(volumes, corev1.Volume{
-			Name:         VolumeData,
-			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 		})
 	}
 
@@ -170,7 +173,7 @@ func buildVolumes(agent *agentsv1alpha1.Agent, taskMode bool) []corev1.Volume {
 		)
 	}
 
-	// ConfigMap-based tools mounted as volumes
+	// ConfigMap-based tools mounted as volumes (shared across runtimes)
 	for _, tr := range agent.Spec.ToolRefs {
 		if tr.ConfigMapRef != nil {
 			volumes = append(volumes, corev1.Volume{
@@ -189,26 +192,28 @@ func buildVolumes(agent *agentsv1alpha1.Agent, taskMode bool) []corev1.Volume {
 		}
 	}
 
-	// ConfigMap-based skills mounted as volumes
-	for _, sk := range agent.Spec.Skills {
-		if sk.ConfigMapRef != nil {
-			volumes = append(volumes, corev1.Volume{
-				Name: fmt.Sprintf("skill-cm-%s", sk.Name),
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: sk.ConfigMapRef.Name,
-						},
-						Items: []corev1.KeyToPath{
-							{Key: sk.ConfigMapRef.Key, Path: "SKILL.md"},
+	// Pi-specific: ConfigMap-based skills mounted as volumes
+	if agent.Spec.Pi != nil {
+		for _, sk := range agent.Spec.Pi.Skills {
+			if sk.ConfigMapRef != nil {
+				volumes = append(volumes, corev1.Volume{
+					Name: fmt.Sprintf("skill-cm-%s", sk.Name),
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: sk.ConfigMapRef.Name,
+							},
+							Items: []corev1.KeyToPath{
+								{Key: sk.ConfigMapRef.Key, Path: "SKILL.md"},
+							},
 						},
 					},
-				},
-			})
+				})
+			}
 		}
 	}
 
-	// Context files from ConfigMaps
+	// Context files from ConfigMaps (shared across runtimes)
 	for i, cf := range agent.Spec.ContextFiles {
 		volumes = append(volumes, corev1.Volume{
 			Name: fmt.Sprintf("context-%d", i),
@@ -229,9 +234,9 @@ func buildVolumes(agent *agentsv1alpha1.Agent, taskMode bool) []corev1.Volume {
 }
 
 func buildInitContainers(agent *agentsv1alpha1.Agent) []corev1.Container {
-	inits := make([]corev1.Container, 0, len(agent.Spec.ToolRefs)+len(agent.Spec.Extensions)+len(agent.Spec.Skills))
+	var inits []corev1.Container
 
-	// OCI tool pulls
+	// OCI tool pulls (shared across runtimes)
 	for _, tr := range agent.Spec.ToolRefs {
 		if tr.OCIRef != nil {
 			inits = append(inits, buildCraneInitContainer(
@@ -245,29 +250,31 @@ func buildInitContainers(agent *agentsv1alpha1.Agent) []corev1.Container {
 		}
 	}
 
-	// OCI extension pulls
-	for _, ext := range agent.Spec.Extensions {
-		inits = append(inits, buildCraneInitContainer(
-			fmt.Sprintf("init-pull-ext-%s", ext.Name),
-			ext.OCIRef.Ref,
-			fmt.Sprintf("%s/%s", MountExtensions, ext.Name),
-			VolumeExtensions,
-			MountExtensions,
-			ext.OCIRef.PullSecret,
-		))
-	}
-
-	// OCI skill pulls
-	for _, sk := range agent.Spec.Skills {
-		if sk.OCIRef != nil {
+	// Pi-specific: extension pulls
+	if agent.Spec.Pi != nil {
+		for _, ext := range agent.Spec.Pi.Extensions {
 			inits = append(inits, buildCraneInitContainer(
-				fmt.Sprintf("init-pull-skill-%s", sk.Name),
-				sk.OCIRef.Ref,
-				fmt.Sprintf("%s/%s", MountSkills, sk.Name),
-				VolumeSkills,
-				MountSkills,
-				sk.OCIRef.PullSecret,
+				fmt.Sprintf("init-pull-ext-%s", ext.Name),
+				ext.OCIRef.Ref,
+				fmt.Sprintf("%s/%s", MountExtensions, ext.Name),
+				VolumeExtensions,
+				MountExtensions,
+				ext.OCIRef.PullSecret,
 			))
+		}
+
+		// Pi-specific: skill pulls
+		for _, sk := range agent.Spec.Pi.Skills {
+			if sk.OCIRef != nil {
+				inits = append(inits, buildCraneInitContainer(
+					fmt.Sprintf("init-pull-skill-%s", sk.Name),
+					sk.OCIRef.Ref,
+					fmt.Sprintf("%s/%s", MountSkills, sk.Name),
+					VolumeSkills,
+					MountSkills,
+					sk.OCIRef.PullSecret,
+				))
+			}
 		}
 	}
 
@@ -304,14 +311,26 @@ func buildCraneInitContainer(name, ref, destPath, volumeName, mountPath string, 
 
 func buildMainContainer(agent *agentsv1alpha1.Agent, taskMode bool) corev1.Container {
 	volumeMounts := []corev1.VolumeMount{
-		{Name: VolumeData, MountPath: MountData},
 		{Name: VolumeTools, MountPath: MountTools},
-		{Name: VolumeExtensions, MountPath: MountExtensions},
-		{Name: VolumeSkills, MountPath: MountSkills},
 		{Name: VolumeConfig, MountPath: MountConfig},
 	}
 
-	// MCP config mount
+	// Data volume (only if storage is configured or task mode)
+	if taskMode || agent.Spec.Storage != nil {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name: VolumeData, MountPath: MountData,
+		})
+	}
+
+	// Pi-specific mounts: extensions, skills
+	if agent.Spec.Pi != nil {
+		volumeMounts = append(volumeMounts,
+			corev1.VolumeMount{Name: VolumeExtensions, MountPath: MountExtensions},
+			corev1.VolumeMount{Name: VolumeSkills, MountPath: MountSkills},
+		)
+	}
+
+	// MCP config mount (shared)
 	if len(agent.Spec.MCPServers) > 0 {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      VolumeMCP,
@@ -319,7 +338,7 @@ func buildMainContainer(agent *agentsv1alpha1.Agent, taskMode bool) corev1.Conta
 		})
 	}
 
-	// ConfigMap-based tools
+	// ConfigMap-based tools (shared)
 	for _, tr := range agent.Spec.ToolRefs {
 		if tr.ConfigMapRef != nil {
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
@@ -329,17 +348,19 @@ func buildMainContainer(agent *agentsv1alpha1.Agent, taskMode bool) corev1.Conta
 		}
 	}
 
-	// ConfigMap-based skills
-	for _, sk := range agent.Spec.Skills {
-		if sk.ConfigMapRef != nil {
-			volumeMounts = append(volumeMounts, corev1.VolumeMount{
-				Name:      fmt.Sprintf("skill-cm-%s", sk.Name),
-				MountPath: fmt.Sprintf("%s/%s", MountSkills, sk.Name),
-			})
+	// Pi-specific: ConfigMap-based skills
+	if agent.Spec.Pi != nil {
+		for _, sk := range agent.Spec.Pi.Skills {
+			if sk.ConfigMapRef != nil {
+				volumeMounts = append(volumeMounts, corev1.VolumeMount{
+					Name:      fmt.Sprintf("skill-cm-%s", sk.Name),
+					MountPath: fmt.Sprintf("%s/%s", MountSkills, sk.Name),
+				})
+			}
 		}
 	}
 
-	// Context files
+	// Context files (shared)
 	for i, cf := range agent.Spec.ContextFiles {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      fmt.Sprintf("context-%d", i),
@@ -348,29 +369,23 @@ func buildMainContainer(agent *agentsv1alpha1.Agent, taskMode bool) corev1.Conta
 		})
 	}
 
-	// Environment variables
+	// Environment variables (shared)
 	env := buildEnvVars(agent)
 
-	// Build command based on mode.
-	// The runtime image uses tsx to run TypeScript directly.
+	// Build command and args based on runtime
 	var command []string
-	if taskMode {
-		command = []string{"npx", "tsx", "/app/src/agent-task.ts"}
-	} else {
-		command = []string{"npx", "tsx", "/app/src/agent-server.ts"}
-	}
-
-	// Build args: builtinTools
 	var args []string
-	if len(agent.Spec.BuiltinTools) > 0 {
-		args = append(args, "--tools", strings.Join(agent.Spec.BuiltinTools, ","))
-	} else {
-		args = append(args, "--no-tools")
+
+	switch {
+	case agent.Spec.Pi != nil:
+		command, args = buildPiCommand(agent, taskMode)
+	case agent.Spec.Fantasy != nil:
+		command, args = buildFantasyCommand(taskMode)
 	}
 
 	container := corev1.Container{
 		Name:         "agent-runtime",
-		Image:        agent.Spec.Image,
+		Image:        agent.RuntimeImage(),
 		Command:      command,
 		Args:         args,
 		Env:          env,
@@ -381,11 +396,9 @@ func buildMainContainer(agent *agentsv1alpha1.Agent, taskMode bool) corev1.Conta
 		container.Resources = *agent.Spec.Resources
 	}
 
-	if agent.Spec.ImagePullPolicy != "" {
-		container.ImagePullPolicy = agent.Spec.ImagePullPolicy
-	}
+	container.ImagePullPolicy = agent.RuntimeImagePullPolicy()
 
-	// Health check for daemon mode
+	// Health check and ports for daemon mode (shared contract: :4096)
 	if !taskMode {
 		container.LivenessProbe = &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
@@ -427,28 +440,51 @@ func buildMainContainer(agent *agentsv1alpha1.Agent, taskMode bool) corev1.Conta
 	return container
 }
 
+// ====================================================================
+// Runtime-specific command builders
+// ====================================================================
+
+func buildPiCommand(agent *agentsv1alpha1.Agent, taskMode bool) ([]string, []string) {
+	var command []string
+	if taskMode {
+		command = []string{"node", "/app/agent-task.js"}
+	} else {
+		command = []string{"node", "/app/agent-server.js"}
+	}
+
+	var args []string
+	if len(agent.Spec.Pi.BuiltinTools) > 0 {
+		args = append(args, "--tools", strings.Join(agent.Spec.Pi.BuiltinTools, ","))
+	} else {
+		args = append(args, "--no-tools")
+	}
+
+	return command, args
+}
+
+func buildFantasyCommand(taskMode bool) ([]string, []string) {
+	if taskMode {
+		return []string{"/app/agent-runtime", "task"}, nil
+	}
+	return []string{"/app/agent-runtime", "daemon"}, nil
+}
+
+// ====================================================================
+// Environment variables (shared across runtimes)
+// ====================================================================
+
 func buildEnvVars(agent *agentsv1alpha1.Agent) []corev1.EnvVar {
-	env := make([]corev1.EnvVar, 0, 3+len(agent.Spec.Env)+len(agent.Spec.Secrets))
+	env := make([]corev1.EnvVar, 0, 4+len(agent.Spec.Env)+len(agent.Spec.Secrets))
 
-	// Agent name
-	env = append(env, corev1.EnvVar{
-		Name:  "AGENT_NAME",
-		Value: agent.Name,
-	})
+	// Agent metadata
+	env = append(env,
+		corev1.EnvVar{Name: "AGENT_NAME", Value: agent.Name},
+		corev1.EnvVar{Name: "AGENT_NAMESPACE", Value: agent.Namespace},
+		corev1.EnvVar{Name: "AGENT_MODE", Value: string(agent.Spec.Mode)},
+		corev1.EnvVar{Name: "AGENT_RUNTIME", Value: agent.RuntimeType()},
+	)
 
-	// Agent namespace
-	env = append(env, corev1.EnvVar{
-		Name:  "AGENT_NAMESPACE",
-		Value: agent.Namespace,
-	})
-
-	// Agent mode
-	env = append(env, corev1.EnvVar{
-		Name:  "AGENT_MODE",
-		Value: string(agent.Spec.Mode),
-	})
-
-	// Plain-text env vars (sort map keys for deterministic order)
+	// Plain-text env vars (sort for deterministic order)
 	envKeys := make([]string, 0, len(agent.Spec.Env))
 	for k := range agent.Spec.Env {
 		envKeys = append(envKeys, k)
@@ -474,7 +510,7 @@ func buildEnvVars(agent *agentsv1alpha1.Agent) []corev1.EnvVar {
 		})
 	}
 
-	// Provider API keys as env vars
+	// Provider API keys as env vars (shared)
 	for _, p := range agent.Spec.Providers {
 		env = append(env, corev1.EnvVar{
 			Name: ProviderEnvVarName(p.Name),
@@ -487,34 +523,40 @@ func buildEnvVars(agent *agentsv1alpha1.Agent) []corev1.EnvVar {
 		})
 	}
 
-	// Extension env vars
-	for _, ext := range agent.Spec.Extensions {
-		extEnvKeys := make([]string, 0, len(ext.Env))
-		for k := range ext.Env {
-			extEnvKeys = append(extEnvKeys, k)
-		}
-		sort.Strings(extEnvKeys)
-		for _, k := range extEnvKeys {
-			env = append(env, corev1.EnvVar{
-				Name:  k,
-				Value: ext.Env[k],
-			})
-		}
-		for _, s := range ext.Secrets {
-			env = append(env, corev1.EnvVar{
-				Name: s.Name,
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{Name: s.SecretRef.Name},
-						Key:                  s.SecretRef.Key,
+	// Pi-specific: extension env vars
+	if agent.Spec.Pi != nil {
+		for _, ext := range agent.Spec.Pi.Extensions {
+			extEnvKeys := make([]string, 0, len(ext.Env))
+			for k := range ext.Env {
+				extEnvKeys = append(extEnvKeys, k)
+			}
+			sort.Strings(extEnvKeys)
+			for _, k := range extEnvKeys {
+				env = append(env, corev1.EnvVar{
+					Name:  k,
+					Value: ext.Env[k],
+				})
+			}
+			for _, s := range ext.Secrets {
+				env = append(env, corev1.EnvVar{
+					Name: s.Name,
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: s.SecretRef.Name},
+							Key:                  s.SecretRef.Key,
+						},
 					},
-				},
-			})
+				})
+			}
 		}
 	}
 
 	return env
 }
+
+// ====================================================================
+// MCP Gateway sidecar (shared across runtimes)
+// ====================================================================
 
 func buildGatewaySidecar(binding agentsv1alpha1.MCPServerBinding, mcpServers []agentsv1alpha1.MCPServer, index int) *corev1.Container {
 	// Find the MCPServer to get its service URL
@@ -540,7 +582,7 @@ func buildGatewaySidecar(binding agentsv1alpha1.MCPServerBinding, mcpServers []a
 
 	return &corev1.Container{
 		Name:  fmt.Sprintf("gw-%s", binding.Name),
-		Image: MCPGatewayImage,
+		Image: "ghcr.io/samyn92/mcp-gateway:latest",
 		Env: []corev1.EnvVar{
 			{Name: "GATEWAY_MODE", Value: "proxy"},
 			{Name: "GATEWAY_UPSTREAM", Value: upstream},

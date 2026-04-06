@@ -46,6 +46,10 @@ const (
 	// CraneImage is the OCI puller used in init containers.
 	CraneImage = "gcr.io/go-containerregistry/crane:debug"
 
+	// Default runtime images.
+	DefaultPiImage      = "ghcr.io/samyn92/agent-runtime-pi:latest"
+	DefaultFantasyImage = "ghcr.io/samyn92/agent-runtime-fantasy:latest"
+
 	// MCPGatewayImage is the MCP protocol gateway image (spawn + proxy modes).
 	MCPGatewayImage = "ghcr.io/samyn92/mcp-gateway:latest"
 

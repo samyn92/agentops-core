@@ -1,0 +1,55 @@
+# Example: Pi runtime daemon agent
+apiVersion: agents.agenticops.io/v1alpha1
+kind: Agent
+metadata:
+  name: code-reviewer-pi
+  namespace: agents
+spec:
+  mode: daemon
+  model: anthropic/claude-sonnet-4-20250514
+
+  # Pi runtime — Node.js/TypeScript with Pi SDK
+  pi:
+    image: ghcr.io/samyn92/agent-runtime-pi:latest
+    builtinTools:
+      - read
+      - bash
+      - edit
+      - write
+    thinkingLevel: medium
+    compaction:
+      strategy: auto
+    skills:
+      - name: code-review
+        ociRef:
+          ref: ghcr.io/samyn92/skills/code-review:1.0
+    extensions:
+      - name: github-ext
+        ociRef:
+          ref: ghcr.io/samyn92/ext/github:1.0
+
+  providers:
+    - name: anthropic
+      apiKeySecret:
+        name: llm-keys
+        key: anthropic-api-key
+
+  systemPrompt: |
+    You are a senior code reviewer. Review PRs thoroughly,
+    focusing on correctness, security, and maintainability.
+
+  contextFiles:
+    - configMapRef:
+        name: project-context
+        key: AGENTS.md
+
+  storage:
+    size: 5Gi
+
+  resources:
+    limits:
+      memory: 512Mi
+      cpu: 500m
+    requests:
+      memory: 256Mi
+      cpu: 100m

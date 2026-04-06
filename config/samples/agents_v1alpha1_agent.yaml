@@ -1,3 +1,4 @@
+# Default sample: Pi runtime daemon agent
 apiVersion: agents.agenticops.io/v1alpha1
 kind: Agent
 metadata:
@@ -8,7 +9,18 @@ metadata:
 spec:
   mode: daemon
   model: anthropic/claude-sonnet-4-20250514
-  thinkingLevel: medium
+
+  # Pi runtime
+  pi:
+    builtinTools:
+      - read
+      - grep
+      - find
+      - ls
+    thinkingLevel: medium
+    compaction:
+      enabled: true
+      strategy: auto
 
   providers:
     - name: anthropic
@@ -22,12 +34,6 @@ spec:
   systemPrompt: |
     You are a senior code reviewer. Analyze code changes for bugs,
     security issues, and style violations. Be concise and actionable.
-
-  builtinTools:
-    - read
-    - grep
-    - find
-    - ls
 
   mcpServers:
     - name: gitlab-mcp
@@ -43,10 +49,6 @@ spec:
   storage:
     size: 5Gi
     storageClass: local-path
-
-  compaction:
-    enabled: true
-    strategy: auto
 
   concurrency:
     maxRuns: 3

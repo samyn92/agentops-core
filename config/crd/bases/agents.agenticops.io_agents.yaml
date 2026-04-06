@@ -20,6 +20,9 @@ spec:
     - jsonPath: .spec.mode
       name: Mode
       type: string
+    - jsonPath: .status.runtime
+      name: Runtime
+      type: string
     - jsonPath: .spec.model
       name: Model
       type: string
@@ -37,6 +40,7 @@ spec:
           One CRD for all agents. mode controls lifecycle:
           daemon = Deployment + PVC + Service (always running).
           task = Job template (one prompt, exits).
+          Runtime is selected by setting exactly one of spec.pi or spec.fantasy.
         properties:
           apiVersion:
             description: |-
@@ -58,28 +62,6 @@ spec:
           spec:
             description: AgentSpec defines the desired state of Agent.
             properties:
-              builtinTools:
-                description: |-
-                  Pi built-in tools to enable. Omit or [] for OCI-only agents.
-                  Valid: read, bash, edit, write, grep, find, ls.
-                items:
-                  type: string
-                type: array
-              compaction:
-                description: Session compaction settings for daemon agents.
-                properties:
-                  enabled:
-                    description: 'Whether compaction is enabled. Default: true.'
-                    type: boolean
-                  strategy:
-                    default: auto
-                    description: 'Strategy: auto (default), manual, or off.'
-                    enum:
-                    - auto
-                    - manual
-                    - "off"
-                    type: string
-                type: object
               concurrency:
                 description: Concurrency control for parallel AgentRun execution.
                 properties:
@@ -125,85 +107,6 @@ spec:
                   type: string
                 description: Plain-text environment variables.
                 type: object
-              extensions:
-                description: Additional Pi extensions loaded from OCI.
-                items:
-                  description: ExtensionRef loads a Pi extension from OCI with optional
-                    env/secrets.
-                  properties:
-                    env:
-                      additionalProperties:
-                        type: string
-                      description: Plain-text environment variables.
-                      type: object
-                    name:
-                      description: Logical name.
-                      type: string
-                    ociRef:
-                      description: OCI artifact containing the extension.
-                      properties:
-                        digest:
-                          description: Optional digest for pinning (e.g. sha256:abc...).
-                          type: string
-                        pullPolicy:
-                          description: 'Pull policy: Always, IfNotPresent, Never.
-                            Defaults based on tag.'
-                          enum:
-                          - Always
-                          - IfNotPresent
-                          - Never
-                          type: string
-                        pullSecret:
-                          description: Optional pull secret for private registries.
-                          properties:
-                            key:
-                              description: Key within the Secret.
-                              type: string
-                            name:
-                              description: Name of the Secret.
-                              type: string
-                          required:
-                          - key
-                          - name
-                          type: object
-                        ref:
-                          description: Full OCI reference (e.g. ghcr.io/org/tool:1.0.0).
-                          type: string
-                      required:
-                      - ref
-                      type: object
-                    secrets:
-                      description: Secret-backed environment variables.
-                      items:
-                        description: SecretEnvVar injects a Secret key as an environment
-                          variable.
-                        properties:
-                          name:
-                            description: Environment variable name.
-                            type: string
-                          secretRef:
-                            description: Reference to the secret key.
-                            properties:
-                              key:
-                                description: Key within the Secret.
-                                type: string
-                              name:
-                                description: Name of the Secret.
-                                type: string
-                            required:
-                            - key
-                            - name
-                            type: object
-                        required:
-                        - name
-                        - secretRef
-                        type: object
-                      type: array
-                  required:
-                  - name
-                  - ociRef
-                  type: object
-                type: array
               fallbackModels:
                 description: |-
                   Fallback models tried in order if the primary model fails.
@@ -211,18 +114,43 @@ spec:
                 items:
                   type: string
                 type: array
-              image:
-                default: ghcr.io/samyn92/agent-runtime:latest
-                description: Container image for the agent runtime.
-                type: string
-              imagePullPolicy:
-                default: IfNotPresent
-                description: Image pull policy.
-                enum:
-                - Always
-                - IfNotPresent
-                - Never
-                type: string
+              fantasy:
+                description: |-
+                  Fantasy runtime configuration. Uses the Charm Fantasy SDK (Go).
+                  Mutually exclusive with pi.
+                properties:
+                  builtinTools:
+                    description: |-
+                      Built-in tools to enable.
+                      Valid: bash, read, edit, write, grep, ls, glob, fetch.
+                    items:
+                      type: string
+                    type: array
+                  image:
+                    default: ghcr.io/samyn92/agent-runtime-fantasy:latest
+                    description: Container image for the Fantasy agent runtime.
+                    type: string
+                  imagePullPolicy:
+                    default: IfNotPresent
+                    description: Image pull policy.
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
+                    type: string
+                  maxOutputTokens:
+                    description: Maximum output tokens per model call.
+                    format: int64
+                    type: integer
+                  maxSteps:
+                    default: 100
+                    description: Maximum agent loop steps (safety limit to prevent
+                      infinite loops).
+                    type: integer
+                  temperature:
+                    description: Temperature for model calls (0.0 - 1.0).
+                    type: number
+                type: object
               mcpServers:
                 description: Shared MCPServer bindings with per-agent permissions.
                 items:
@@ -278,6 +206,201 @@ spec:
                   enabled:
                     description: Whether to create a NetworkPolicy.
                     type: boolean
+                type: object
+              pi:
+                description: |-
+                  Pi runtime configuration. Uses the Pi coding agent SDK (Node.js/TypeScript).
+                  Mutually exclusive with fantasy.
+                properties:
+                  builtinTools:
+                    description: |-
+                      Pi built-in tools to enable.
+                      Valid: read, bash, edit, write, grep, find, ls.
+                    items:
+                      type: string
+                    type: array
+                  compaction:
+                    description: Session compaction settings (daemon only).
+                    properties:
+                      enabled:
+                        description: 'Whether compaction is enabled. Default: true.'
+                        type: boolean
+                      strategy:
+                        default: auto
+                        description: 'Strategy: auto (default), manual, or off.'
+                        enum:
+                        - auto
+                        - manual
+                        - "off"
+                        type: string
+                    type: object
+                  extensions:
+                    description: Additional Pi extensions loaded from OCI.
+                    items:
+                      description: |-
+                        ExtensionRef loads a Pi extension from OCI with optional env/secrets.
+                        Only used when spec.pi is set.
+                      properties:
+                        env:
+                          additionalProperties:
+                            type: string
+                          description: Plain-text environment variables.
+                          type: object
+                        name:
+                          description: Logical name.
+                          type: string
+                        ociRef:
+                          description: OCI artifact containing the extension.
+                          properties:
+                            digest:
+                              description: Optional digest for pinning (e.g. sha256:abc...).
+                              type: string
+                            pullPolicy:
+                              description: 'Pull policy: Always, IfNotPresent, Never.
+                                Defaults based on tag.'
+                              enum:
+                              - Always
+                              - IfNotPresent
+                              - Never
+                              type: string
+                            pullSecret:
+                              description: Optional pull secret for private registries.
+                              properties:
+                                key:
+                                  description: Key within the Secret.
+                                  type: string
+                                name:
+                                  description: Name of the Secret.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            ref:
+                              description: Full OCI reference (e.g. ghcr.io/org/tool:1.0.0).
+                              type: string
+                          required:
+                          - ref
+                          type: object
+                        secrets:
+                          description: Secret-backed environment variables.
+                          items:
+                            description: SecretEnvVar injects a Secret key as an environment
+                              variable.
+                            properties:
+                              name:
+                                description: Environment variable name.
+                                type: string
+                              secretRef:
+                                description: Reference to the secret key.
+                                properties:
+                                  key:
+                                    description: Key within the Secret.
+                                    type: string
+                                  name:
+                                    description: Name of the Secret.
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                            required:
+                            - name
+                            - secretRef
+                            type: object
+                          type: array
+                      required:
+                      - name
+                      - ociRef
+                      type: object
+                    type: array
+                  image:
+                    default: ghcr.io/samyn92/agent-runtime-pi:latest
+                    description: Container image for the Pi agent runtime.
+                    type: string
+                  imagePullPolicy:
+                    default: IfNotPresent
+                    description: Image pull policy.
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
+                    type: string
+                  skills:
+                    description: |-
+                      Skills loaded from OCI, ConfigMap, or inline content.
+                      Skills use the Pi SKILL.md format.
+                    items:
+                      description: |-
+                        ResourceRef references a resource from OCI, ConfigMap, or inline content.
+                        Exactly one of ociRef, configMapRef, or content must be set.
+                      properties:
+                        configMapRef:
+                          description: ConfigMap reference (name + key).
+                          properties:
+                            key:
+                              description: Key within the Secret.
+                              type: string
+                            name:
+                              description: Name of the Secret.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        content:
+                          description: Inline content (< 4KB, for prototyping).
+                          type: string
+                        name:
+                          description: Logical name for this resource.
+                          type: string
+                        ociRef:
+                          description: OCI artifact reference.
+                          properties:
+                            digest:
+                              description: Optional digest for pinning (e.g. sha256:abc...).
+                              type: string
+                            pullPolicy:
+                              description: 'Pull policy: Always, IfNotPresent, Never.
+                                Defaults based on tag.'
+                              enum:
+                              - Always
+                              - IfNotPresent
+                              - Never
+                              type: string
+                            pullSecret:
+                              description: Optional pull secret for private registries.
+                              properties:
+                                key:
+                                  description: Key within the Secret.
+                                  type: string
+                                name:
+                                  description: Name of the Secret.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            ref:
+                              description: Full OCI reference (e.g. ghcr.io/org/tool:1.0.0).
+                              type: string
+                          required:
+                          - ref
+                          type: object
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  thinkingLevel:
+                    description: Thinking level for the model.
+                    enum:
+                    - "off"
+                    - minimal
+                    - low
+                    - medium
+                    - high
+                    - xhigh
+                    type: string
                 type: object
               providers:
                 description: LLM providers with API key references. At least one required.
@@ -402,69 +525,6 @@ spec:
               serviceAccountName:
                 description: ServiceAccount for the agent pod.
                 type: string
-              skills:
-                description: Skills loaded from OCI, ConfigMap, or inline content.
-                items:
-                  description: |-
-                    ResourceRef references a resource from OCI, ConfigMap, or inline content.
-                    Exactly one of ociRef, configMapRef, or content must be set.
-                  properties:
-                    configMapRef:
-                      description: ConfigMap reference (name + key).
-                      properties:
-                        key:
-                          description: Key within the Secret.
-                          type: string
-                        name:
-                          description: Name of the Secret.
-                          type: string
-                      required:
-                      - key
-                      - name
-                      type: object
-                    content:
-                      description: Inline content (< 4KB, for prototyping).
-                      type: string
-                    name:
-                      description: Logical name for this resource.
-                      type: string
-                    ociRef:
-                      description: OCI artifact reference.
-                      properties:
-                        digest:
-                          description: Optional digest for pinning (e.g. sha256:abc...).
-                          type: string
-                        pullPolicy:
-                          description: 'Pull policy: Always, IfNotPresent, Never.
-                            Defaults based on tag.'
-                          enum:
-                          - Always
-                          - IfNotPresent
-                          - Never
-                          type: string
-                        pullSecret:
-                          description: Optional pull secret for private registries.
-                          properties:
-                            key:
-                              description: Key within the Secret.
-                              type: string
-                            name:
-                              description: Name of the Secret.
-                              type: string
-                          required:
-                          - key
-                          - name
-                          type: object
-                        ref:
-                          description: Full OCI reference (e.g. ghcr.io/org/tool:1.0.0).
-                          type: string
-                      required:
-                      - ref
-                      type: object
-                  required:
-                  - name
-                  type: object
-                type: array
               storage:
                 description: Persistent storage for daemon agents (PVC, RWO).
                 properties:
@@ -479,16 +539,6 @@ spec:
                 type: object
               systemPrompt:
                 description: System prompt injected at the start of every session.
-                type: string
-              thinkingLevel:
-                description: Thinking level for the model.
-                enum:
-                - "off"
-                - minimal
-                - low
-                - medium
-                - high
-                - xhigh
                 type: string
               timeout:
                 default: 10m
@@ -516,8 +566,9 @@ spec:
                     type: array
                 type: object
               toolRefs:
-                description: OCI packages, ConfigMaps, or inline JS modules providing
-                  tools.
+                description: |-
+                  OCI packages or ConfigMaps providing MCP tool servers.
+                  Tools are packaged as MCP servers and work with any runtime.
                 items:
                   description: |-
                     ResourceRef references a resource from OCI, ConfigMap, or inline content.
@@ -656,6 +707,9 @@ spec:
                 description: Number of ready replicas (daemon only).
                 format: int32
                 type: integer
+              runtime:
+                description: Which runtime is active (pi or fantasy).
+                type: string
               serviceURL:
                 description: Service URL for daemon agents (e.g. http://agent.ns.svc:4096).
                 type: string

@@ -52,6 +52,20 @@ type AgentSpec struct {
 	Mode AgentMode `json:"mode"`
 
 	// ====================================================================
+	// RUNTIME (exactly one must be set)
+	// ====================================================================
+
+	// Pi runtime configuration. Uses the Pi coding agent SDK (Node.js/TypeScript).
+	// Mutually exclusive with fantasy.
+	// +optional
+	Pi *PiRuntimeConfig `json:"pi,omitempty"`
+
+	// Fantasy runtime configuration. Uses the Charm Fantasy SDK (Go).
+	// Mutually exclusive with pi.
+	// +optional
+	Fantasy *FantasyRuntimeConfig `json:"fantasy,omitempty"`
+
+	// ====================================================================
 	// MODEL
 	// ====================================================================
 
@@ -59,11 +73,6 @@ type AgentSpec struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Model string `json:"model"`
-
-	// Thinking level for the model.
-	// +optional
-	// +kubebuilder:validation:Enum=off;minimal;low;medium;high;xhigh
-	ThinkingLevel string `json:"thinkingLevel,omitempty"`
 
 	// LLM providers with API key references. At least one required.
 	// +kubebuilder:validation:MinItems=1
@@ -87,15 +96,11 @@ type AgentSpec struct {
 	ContextFiles []ContextFileRef `json:"contextFiles,omitempty"`
 
 	// ====================================================================
-	// TOOLS
+	// TOOLS (runtime-agnostic, loaded via MCP protocol from OCI/ConfigMap)
 	// ====================================================================
 
-	// Pi built-in tools to enable. Omit or [] for OCI-only agents.
-	// Valid: read, bash, edit, write, grep, find, ls.
-	// +optional
-	BuiltinTools []string `json:"builtinTools,omitempty"`
-
-	// OCI packages, ConfigMaps, or inline JS modules providing tools.
+	// OCI packages or ConfigMaps providing MCP tool servers.
+	// Tools are packaged as MCP servers and work with any runtime.
 	// +optional
 	ToolRefs []ResourceRef `json:"toolRefs,omitempty"`
 
@@ -120,14 +125,6 @@ type AgentSpec struct {
 	Storage *StorageSpec `json:"storage,omitempty"`
 
 	// ====================================================================
-	// COMPACTION (daemon only)
-	// ====================================================================
-
-	// Session compaction settings for daemon agents.
-	// +optional
-	Compaction *CompactionSpec `json:"compaction,omitempty"`
-
-	// ====================================================================
 	// MCP SERVERS
 	// ====================================================================
 
@@ -136,20 +133,12 @@ type AgentSpec struct {
 	MCPServers []MCPServerBinding `json:"mcpServers,omitempty"`
 
 	// ====================================================================
-	// SKILLS
+	// TOOL HOOKS (defense-in-depth)
 	// ====================================================================
 
-	// Skills loaded from OCI, ConfigMap, or inline content.
+	// Runtime security hooks for tool calls.
 	// +optional
-	Skills []ResourceRef `json:"skills,omitempty"`
-
-	// ====================================================================
-	// EXTENSIONS
-	// ====================================================================
-
-	// Additional Pi extensions loaded from OCI.
-	// +optional
-	Extensions []ExtensionRef `json:"extensions,omitempty"`
+	ToolHooks *ToolHooksSpec `json:"toolHooks,omitempty"`
 
 	// ====================================================================
 	// SCHEDULE
@@ -172,31 +161,12 @@ type AgentSpec struct {
 	Concurrency *ConcurrencySpec `json:"concurrency,omitempty"`
 
 	// ====================================================================
-	// TOOL HOOKS (defense-in-depth)
-	// ====================================================================
-
-	// Runtime security hooks for tool calls.
-	// +optional
-	ToolHooks *ToolHooksSpec `json:"toolHooks,omitempty"`
-
-	// ====================================================================
-	// INFRASTRUCTURE
+	// INFRASTRUCTURE (shared)
 	// ====================================================================
 
 	// Compute resources for the agent container.
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
-
-	// Container image for the agent runtime.
-	// +optional
-	// +kubebuilder:default="ghcr.io/samyn92/agent-runtime:latest"
-	Image string `json:"image,omitempty"`
-
-	// Image pull policy.
-	// +optional
-	// +kubebuilder:validation:Enum=Always;IfNotPresent;Never
-	// +kubebuilder:default=IfNotPresent
-	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 
 	// ServiceAccount for the agent pod.
 	// +optional
@@ -212,11 +182,94 @@ type AgentSpec struct {
 	NetworkPolicy *NetworkPolicySpec `json:"networkPolicy,omitempty"`
 }
 
+// ====================================================================
+// Pi Runtime Configuration
+// ====================================================================
+
+// PiRuntimeConfig holds settings specific to the Pi coding agent SDK runtime.
+// The Pi runtime uses Node.js/TypeScript with dynamic tool loading via JS modules.
+type PiRuntimeConfig struct {
+	// Container image for the Pi agent runtime.
+	// +optional
+	// +kubebuilder:default="ghcr.io/samyn92/agent-runtime-pi:latest"
+	Image string `json:"image,omitempty"`
+
+	// Image pull policy.
+	// +optional
+	// +kubebuilder:validation:Enum=Always;IfNotPresent;Never
+	// +kubebuilder:default=IfNotPresent
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+
+	// Pi built-in tools to enable.
+	// Valid: read, bash, edit, write, grep, find, ls.
+	// +optional
+	BuiltinTools []string `json:"builtinTools,omitempty"`
+
+	// Thinking level for the model.
+	// +optional
+	// +kubebuilder:validation:Enum=off;minimal;low;medium;high;xhigh
+	ThinkingLevel string `json:"thinkingLevel,omitempty"`
+
+	// Session compaction settings (daemon only).
+	// +optional
+	Compaction *CompactionSpec `json:"compaction,omitempty"`
+
+	// Skills loaded from OCI, ConfigMap, or inline content.
+	// Skills use the Pi SKILL.md format.
+	// +optional
+	Skills []ResourceRef `json:"skills,omitempty"`
+
+	// Additional Pi extensions loaded from OCI.
+	// +optional
+	Extensions []ExtensionRef `json:"extensions,omitempty"`
+}
+
+// ====================================================================
+// Fantasy Runtime Configuration
+// ====================================================================
+
+// FantasyRuntimeConfig holds settings specific to the Charm Fantasy SDK runtime.
+// The Fantasy runtime uses Go with compiled tools and MCP-based tool loading.
+type FantasyRuntimeConfig struct {
+	// Container image for the Fantasy agent runtime.
+	// +optional
+	// +kubebuilder:default="ghcr.io/samyn92/agent-runtime-fantasy:latest"
+	Image string `json:"image,omitempty"`
+
+	// Image pull policy.
+	// +optional
+	// +kubebuilder:validation:Enum=Always;IfNotPresent;Never
+	// +kubebuilder:default=IfNotPresent
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+
+	// Built-in tools to enable.
+	// Valid: bash, read, edit, write, grep, ls, glob, fetch.
+	// +optional
+	BuiltinTools []string `json:"builtinTools,omitempty"`
+
+	// Temperature for model calls (0.0 - 1.0).
+	// +optional
+	Temperature *float64 `json:"temperature,omitempty"`
+
+	// Maximum output tokens per model call.
+	// +optional
+	MaxOutputTokens *int64 `json:"maxOutputTokens,omitempty"`
+
+	// Maximum agent loop steps (safety limit to prevent infinite loops).
+	// +optional
+	// +kubebuilder:default=100
+	MaxSteps *int `json:"maxSteps,omitempty"`
+}
+
 // AgentStatus defines the observed state of Agent.
 type AgentStatus struct {
 	// Current phase: Pending, Running (daemon), Ready (task), Failed.
 	// +optional
 	Phase AgentPhase `json:"phase,omitempty"`
+
+	// Which runtime is active (pi or fantasy).
+	// +optional
+	Runtime string `json:"runtime,omitempty"`
 
 	// Service URL for daemon agents (e.g. http://agent.ns.svc:4096).
 	// +optional
@@ -255,6 +308,7 @@ const (
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=ag
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.mode`
+// +kubebuilder:printcolumn:name="Runtime",type=string,JSONPath=`.status.runtime`
 // +kubebuilder:printcolumn:name="Model",type=string,JSONPath=`.spec.model`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
@@ -263,6 +317,7 @@ const (
 // One CRD for all agents. mode controls lifecycle:
 // daemon = Deployment + PVC + Service (always running).
 // task = Job template (one prompt, exits).
+// Runtime is selected by setting exactly one of spec.pi or spec.fantasy.
 type Agent struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -270,6 +325,66 @@ type Agent struct {
 	Spec   AgentSpec   `json:"spec,omitempty"`
 	Status AgentStatus `json:"status,omitempty"`
 }
+
+// RuntimeType returns which runtime is configured: "pi", "fantasy", or "" if none.
+func (a *Agent) RuntimeType() string {
+	if a.Spec.Pi != nil {
+		return "pi"
+	}
+	if a.Spec.Fantasy != nil {
+		return "fantasy"
+	}
+	return ""
+}
+
+// RuntimeImage returns the container image for the configured runtime.
+func (a *Agent) RuntimeImage() string {
+	switch {
+	case a.Spec.Pi != nil:
+		if a.Spec.Pi.Image != "" {
+			return a.Spec.Pi.Image
+		}
+		return DefaultPiImage
+	case a.Spec.Fantasy != nil:
+		if a.Spec.Fantasy.Image != "" {
+			return a.Spec.Fantasy.Image
+		}
+		return DefaultFantasyImage
+	}
+	return ""
+}
+
+// RuntimeImagePullPolicy returns the image pull policy for the configured runtime.
+func (a *Agent) RuntimeImagePullPolicy() corev1.PullPolicy {
+	switch {
+	case a.Spec.Pi != nil:
+		if a.Spec.Pi.ImagePullPolicy != "" {
+			return a.Spec.Pi.ImagePullPolicy
+		}
+	case a.Spec.Fantasy != nil:
+		if a.Spec.Fantasy.ImagePullPolicy != "" {
+			return a.Spec.Fantasy.ImagePullPolicy
+		}
+	}
+	return corev1.PullIfNotPresent
+}
+
+// BuiltinToolCount returns the number of built-in tools for the active runtime.
+func (a *Agent) BuiltinToolCount() int {
+	switch {
+	case a.Spec.Pi != nil:
+		return len(a.Spec.Pi.BuiltinTools)
+	case a.Spec.Fantasy != nil:
+		return len(a.Spec.Fantasy.BuiltinTools)
+	}
+	return 0
+}
+
+// Default images for each runtime.
+const (
+	DefaultPiImage      = "ghcr.io/samyn92/agent-runtime-pi:latest"
+	DefaultFantasyImage = "ghcr.io/samyn92/agent-runtime-fantasy:latest"
+)
 
 // +kubebuilder:object:root=true
 

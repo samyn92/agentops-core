@@ -173,7 +173,7 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 			}
 		}
 
-		// 4. MCP ConfigMap (mcp.json for pi-mcp-adapter)
+		// 4. MCP ConfigMap (mcp.json for runtime MCP adapter)
 		mcpCM, err := resources.BuildMCPConfigMap(agent)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -214,9 +214,10 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 
 	agent.Status.ServiceURL = resources.AgentServiceURL(agent)
 	agent.Status.ActiveModel = agent.Spec.Model
+	agent.Status.Runtime = agent.RuntimeType()
 
 	// Tools loaded condition
-	toolCount := len(agent.Spec.BuiltinTools) + len(agent.Spec.ToolRefs)
+	toolCount := agent.BuiltinToolCount() + len(agent.Spec.ToolRefs)
 	meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
 		Type:    agentsv1alpha1.AgentConditionToolsLoaded,
 		Status:  metav1.ConditionTrue,
@@ -292,8 +293,9 @@ func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alph
 	// 3. Update status
 	agent.Status.Phase = agentsv1alpha1.AgentPhaseReady
 	agent.Status.ActiveModel = agent.Spec.Model
+	agent.Status.Runtime = agent.RuntimeType()
 
-	toolCount := len(agent.Spec.BuiltinTools) + len(agent.Spec.ToolRefs)
+	toolCount := agent.BuiltinToolCount() + len(agent.Spec.ToolRefs)
 	meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
 		Type:    agentsv1alpha1.AgentConditionToolsLoaded,
 		Status:  metav1.ConditionTrue,

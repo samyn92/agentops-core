@@ -1,0 +1,42 @@
+# Example: Fantasy runtime task agent (one-shot)
+apiVersion: agents.agenticops.io/v1alpha1
+kind: Agent
+metadata:
+  name: nightly-audit
+  namespace: agents
+spec:
+  mode: task
+  model: anthropic/claude-sonnet-4-20250514
+
+  fantasy:
+    builtinTools:
+      - bash
+      - read
+      - grep
+      - glob
+    maxSteps: 30
+
+  providers:
+    - name: anthropic
+      apiKeySecret:
+        name: llm-keys
+        key: anthropic-api-key
+
+  systemPrompt: |
+    You are a security auditor. Scan the codebase for
+    common vulnerabilities and report findings.
+
+  toolHooks:
+    blockedCommands:
+      - "rm -rf"
+      - "curl"
+      - "wget"
+    allowedPaths:
+      - /data/repos
+
+  schedule: "0 2 * * *"
+  schedulePrompt: "Run a security audit on the main branch."
+
+  concurrency:
+    maxRuns: 1
+    policy: reject

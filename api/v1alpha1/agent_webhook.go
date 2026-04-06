@@ -34,10 +34,15 @@ import (
 
 var agentlog = logf.Log.WithName("agent-webhook")
 
-// validBuiltinTools is the set of valid Pi built-in tool names.
-var validBuiltinTools = map[string]bool{
+// Valid built-in tool names per runtime.
+var piBuiltinTools = map[string]bool{
 	"read": true, "bash": true, "edit": true, "write": true,
 	"grep": true, "find": true, "ls": true,
+}
+
+var fantasyBuiltinTools = map[string]bool{
+	"bash": true, "read": true, "edit": true, "write": true,
+	"grep": true, "ls": true, "glob": true, "fetch": true,
 }
 
 // SetupAgentWebhookWithManager registers the Agent validating webhook.
@@ -77,11 +82,14 @@ func (r *Agent) validate() (admission.Warnings, error) {
 	specPath := field.NewPath("spec")
 
 	allErrs = append(allErrs, r.validateMode(specPath)...)
-	allErrs = append(allErrs, r.validateProviderAndTools(specPath)...)
+	allErrs = append(allErrs, r.validateRuntime(specPath)...)
+	allErrs = append(allErrs, r.validateProviders(specPath)...)
+	allErrs = append(allErrs, r.validateTools(specPath)...)
 	errs, warns := r.validateToolHooks(specPath)
 	allErrs = append(allErrs, errs...)
 	warnings = append(warnings, warns...)
 	allErrs = append(allErrs, r.validateResourceRefs(specPath)...)
+	allErrs = append(allErrs, r.validateSchedule(specPath)...)
 
 	if len(allErrs) > 0 {
 		return warnings, apierrors.NewInvalid(
@@ -105,8 +113,9 @@ func (r *Agent) validateMode(specPath *field.Path) field.ErrorList {
 			errs = append(errs, field.Forbidden(specPath.Child("storage"),
 				"storage is not allowed for task-mode agents"))
 		}
-		if r.Spec.Compaction != nil {
-			errs = append(errs, field.Forbidden(specPath.Child("compaction"),
+		// Pi compaction is daemon-only
+		if r.Spec.Pi != nil && r.Spec.Pi.Compaction != nil {
+			errs = append(errs, field.Forbidden(specPath.Child("pi").Child("compaction"),
 				"compaction is daemon-only"))
 		}
 	}
@@ -114,34 +123,103 @@ func (r *Agent) validateMode(specPath *field.Path) field.ErrorList {
 	return errs
 }
 
-func (r *Agent) validateProviderAndTools(specPath *field.Path) field.ErrorList {
+// validateRuntime ensures exactly one runtime block is set and validates its contents.
+func (r *Agent) validateRuntime(specPath *field.Path) field.ErrorList {
 	var errs field.ErrorList
 
-	// Providers required
-	if len(r.Spec.Providers) == 0 {
-		errs = append(errs, field.Required(specPath.Child("providers"),
-			"all agents need at least one LLM provider"))
+	runtimeCount := 0
+	if r.Spec.Pi != nil {
+		runtimeCount++
+	}
+	if r.Spec.Fantasy != nil {
+		runtimeCount++
 	}
 
-	// At least one tool source
-	if len(r.Spec.ToolRefs) == 0 && len(r.Spec.BuiltinTools) == 0 {
-		errs = append(errs, field.Required(specPath.Child("toolRefs"),
-			"agents need at least one tool (builtinTools or toolRefs)"))
+	if runtimeCount == 0 {
+		errs = append(errs, field.Required(specPath,
+			"exactly one runtime must be specified: set either 'pi' or 'fantasy'"))
+		return errs
+	}
+	if runtimeCount > 1 {
+		errs = append(errs, field.Forbidden(specPath,
+			"only one runtime can be specified: 'pi' and 'fantasy' are mutually exclusive"))
+		return errs
 	}
 
-	// Validate builtinTools names
-	for i, tool := range r.Spec.BuiltinTools {
-		if !validBuiltinTools[tool] {
+	// Runtime-specific validation
+	if r.Spec.Pi != nil {
+		errs = append(errs, r.validatePiRuntime(specPath.Child("pi"))...)
+	}
+	if r.Spec.Fantasy != nil {
+		errs = append(errs, r.validateFantasyRuntime(specPath.Child("fantasy"))...)
+	}
+
+	return errs
+}
+
+func (r *Agent) validatePiRuntime(piPath *field.Path) field.ErrorList {
+	var errs field.ErrorList
+
+	// Validate builtin tool names
+	for i, tool := range r.Spec.Pi.BuiltinTools {
+		if !piBuiltinTools[tool] {
 			errs = append(errs, field.Invalid(
-				specPath.Child("builtinTools").Index(i), tool,
-				fmt.Sprintf("valid names are: read, bash, edit, write, grep, find, ls")))
+				piPath.Child("builtinTools").Index(i), tool,
+				"valid Pi tools: read, bash, edit, write, grep, find, ls"))
 		}
 	}
 
-	// Schedule requires schedulePrompt
-	if r.Spec.Schedule != "" && r.Spec.SchedulePrompt == "" {
-		errs = append(errs, field.Required(specPath.Child("schedulePrompt"),
-			"schedulePrompt is required when schedule is set"))
+	// Compaction strategy validation
+	if r.Spec.Pi.Compaction != nil {
+		validStrategies := map[string]bool{"auto": true, "manual": true, "off": true, "": true}
+		if !validStrategies[r.Spec.Pi.Compaction.Strategy] {
+			errs = append(errs, field.Invalid(
+				piPath.Child("compaction").Child("strategy"), r.Spec.Pi.Compaction.Strategy,
+				"must be auto, manual, or off"))
+		}
+	}
+
+	return errs
+}
+
+func (r *Agent) validateFantasyRuntime(fantasyPath *field.Path) field.ErrorList {
+	var errs field.ErrorList
+
+	// Validate builtin tool names
+	for i, tool := range r.Spec.Fantasy.BuiltinTools {
+		if !fantasyBuiltinTools[tool] {
+			errs = append(errs, field.Invalid(
+				fantasyPath.Child("builtinTools").Index(i), tool,
+				"valid Fantasy tools: bash, read, edit, write, grep, ls, glob, fetch"))
+		}
+	}
+
+	// Temperature range
+	if r.Spec.Fantasy.Temperature != nil {
+		t := *r.Spec.Fantasy.Temperature
+		if t < 0.0 || t > 2.0 {
+			errs = append(errs, field.Invalid(
+				fantasyPath.Child("temperature"), t,
+				"must be between 0.0 and 2.0"))
+		}
+	}
+
+	// MaxSteps > 0
+	if r.Spec.Fantasy.MaxSteps != nil && *r.Spec.Fantasy.MaxSteps <= 0 {
+		errs = append(errs, field.Invalid(
+			fantasyPath.Child("maxSteps"), *r.Spec.Fantasy.MaxSteps,
+			"must be > 0"))
+	}
+
+	return errs
+}
+
+func (r *Agent) validateProviders(specPath *field.Path) field.ErrorList {
+	var errs field.ErrorList
+
+	if len(r.Spec.Providers) == 0 {
+		errs = append(errs, field.Required(specPath.Child("providers"),
+			"all agents need at least one LLM provider"))
 	}
 
 	// FallbackModels must reference configured providers
@@ -160,14 +238,30 @@ func (r *Agent) validateProviderAndTools(specPath *field.Path) field.ErrorList {
 		}
 	}
 
-	// Compaction strategy validation
-	if r.Spec.Compaction != nil {
-		validStrategies := map[string]bool{"auto": true, "manual": true, "off": true, "": true}
-		if !validStrategies[r.Spec.Compaction.Strategy] {
-			errs = append(errs, field.Invalid(
-				specPath.Child("compaction").Child("strategy"), r.Spec.Compaction.Strategy,
-				"must be auto, manual, or off"))
-		}
+	return errs
+}
+
+func (r *Agent) validateTools(specPath *field.Path) field.ErrorList {
+	var errs field.ErrorList
+
+	// At least one tool source (builtin from active runtime OR toolRefs)
+	toolCount := len(r.Spec.ToolRefs)
+	toolCount += r.BuiltinToolCount()
+
+	if toolCount == 0 {
+		errs = append(errs, field.Required(specPath.Child("toolRefs"),
+			"agents need at least one tool (builtinTools in runtime config or toolRefs)"))
+	}
+
+	return errs
+}
+
+func (r *Agent) validateSchedule(specPath *field.Path) field.ErrorList {
+	var errs field.ErrorList
+
+	if r.Spec.Schedule != "" && r.Spec.SchedulePrompt == "" {
+		errs = append(errs, field.Required(specPath.Child("schedulePrompt"),
+			"schedulePrompt is required when schedule is set"))
 	}
 
 	return errs
@@ -192,8 +286,15 @@ func (r *Agent) validateToolHooks(specPath *field.Path) (field.ErrorList, admiss
 
 	// Warn (non-blocking) if auditTools references unknown tools
 	knownTools := make(map[string]bool)
-	for _, bt := range r.Spec.BuiltinTools {
-		knownTools[bt] = true
+	if r.Spec.Pi != nil {
+		for _, bt := range r.Spec.Pi.BuiltinTools {
+			knownTools[bt] = true
+		}
+	}
+	if r.Spec.Fantasy != nil {
+		for _, bt := range r.Spec.Fantasy.BuiltinTools {
+			knownTools[bt] = true
+		}
 	}
 	for _, tr := range r.Spec.ToolRefs {
 		knownTools[tr.Name] = true
@@ -228,6 +329,27 @@ func (r *Agent) validateResourceRefs(specPath *field.Path) field.ErrorList {
 			errs = append(errs, field.Invalid(
 				specPath.Child("toolRefs").Index(i), tr.Name,
 				"exactly one of ociRef, configMapRef, or content must be set"))
+		}
+	}
+
+	// Pi-specific resource refs
+	if r.Spec.Pi != nil {
+		for i, sk := range r.Spec.Pi.Skills {
+			sources := 0
+			if sk.OCIRef != nil {
+				sources++
+			}
+			if sk.ConfigMapRef != nil {
+				sources++
+			}
+			if sk.Content != "" {
+				sources++
+			}
+			if sources != 1 {
+				errs = append(errs, field.Invalid(
+					specPath.Child("pi").Child("skills").Index(i), sk.Name,
+					"exactly one of ociRef, configMapRef, or content must be set"))
+			}
 		}
 	}
 

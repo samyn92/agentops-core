@@ -94,10 +94,11 @@ type ProviderRef struct {
 }
 
 // -------------------------------------------------------------------
-// Extensions
+// Extensions (Pi runtime only)
 // -------------------------------------------------------------------
 
 // ExtensionRef loads a Pi extension from OCI with optional env/secrets.
+// Only used when spec.pi is set.
 type ExtensionRef struct {
 	// Logical name.
 	Name string `json:"name"`
@@ -147,10 +148,11 @@ type MCPPermissions struct {
 }
 
 // -------------------------------------------------------------------
-// Compaction (daemon sessions)
+// Compaction (Pi runtime, daemon only)
 // -------------------------------------------------------------------
 
-// CompactionSpec controls Pi session compaction behavior (daemon only).
+// CompactionSpec controls Pi session compaction behavior.
+// Only used when spec.pi is set with mode=daemon.
 type CompactionSpec struct {
 	// Whether compaction is enabled. Default: true.
 	// +optional
