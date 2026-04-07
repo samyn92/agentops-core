@@ -20,6 +20,7 @@ import (
 )
 
 // buildBuiltinTools returns the requested built-in tools.
+// If names is empty, all built-in tools are returned (operator may omit the list).
 func buildBuiltinTools(names []string) []fantasy.AgentTool {
 	registry := map[string]fantasy.AgentTool{
 		"bash":  newBashTool(),
@@ -30,6 +31,15 @@ func buildBuiltinTools(names []string) []fantasy.AgentTool {
 		"ls":    newLsTool(),
 		"glob":  newGlobTool(),
 		"fetch": newFetchTool(),
+	}
+
+	// Default to all tools when operator doesn't pass the list
+	if len(names) == 0 {
+		tools := make([]fantasy.AgentTool, 0, len(registry))
+		for _, t := range registry {
+			tools = append(tools, t)
+		}
+		return tools
 	}
 
 	var tools []fantasy.AgentTool

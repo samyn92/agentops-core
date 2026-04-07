@@ -51,14 +51,21 @@ func resolveProvider(name string) (fantasy.Provider, error) {
 }
 
 // resolveModel parses "provider/model" and returns a Fantasy LanguageModel.
-func resolveModel(ctx context.Context, modelStr string, providers map[string]fantasy.Provider) (fantasy.LanguageModel, error) {
+// If the model string has no "/" prefix, primaryProvider is prepended.
+func resolveModel(ctx context.Context, modelStr string, providers map[string]fantasy.Provider, primaryProvider string) (fantasy.LanguageModel, error) {
 	parts := strings.SplitN(modelStr, "/", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("model must be in provider/model format, got: %s", modelStr)
+	var providerName, modelID string
+	if len(parts) == 2 {
+		providerName = parts[0]
+		modelID = parts[1]
+	} else {
+		// No provider prefix — use primaryProvider from config
+		if primaryProvider == "" {
+			return nil, fmt.Errorf("model %q has no provider prefix and no primaryProvider configured", modelStr)
+		}
+		providerName = primaryProvider
+		modelID = modelStr
 	}
-
-	providerName := parts[0]
-	modelID := parts[1]
 
 	provider, ok := providers[providerName]
 	if !ok {

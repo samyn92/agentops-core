@@ -10,6 +10,7 @@ package main
 type Config struct {
 	Runtime         string          `json:"runtime"`
 	Providers       []ProviderEntry `json:"providers"`
+	PrimaryProvider string          `json:"primaryProvider,omitempty"`
 	PrimaryModel    string          `json:"primaryModel"`
 	FallbackModels  []string        `json:"fallbackModels,omitempty"`
 	SystemPrompt    string          `json:"systemPrompt,omitempty"`

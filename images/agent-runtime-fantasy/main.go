@@ -90,7 +90,7 @@ func buildAgentBundle(ctx context.Context, cfg *Config) (*agentBundle, error) {
 	}
 
 	// Resolve primary model
-	model, err := resolveModel(ctx, cfg.PrimaryModel, providers)
+	model, err := resolveModel(ctx, cfg.PrimaryModel, providers, cfg.PrimaryProvider)
 	if err != nil {
 		return nil, fmt.Errorf("resolve model %s: %w", cfg.PrimaryModel, err)
 	}
@@ -158,7 +158,7 @@ func buildAgentBundle(ctx context.Context, cfg *Config) (*agentBundle, error) {
 
 // buildFallbackAgent creates a new agent with a fallback model (reusing options from config).
 func buildFallbackAgent(ctx context.Context, cfg *Config, providers map[string]fantasy.Provider, modelStr string) (fantasy.Agent, error) {
-	model, err := resolveModel(ctx, modelStr, providers)
+	model, err := resolveModel(ctx, modelStr, providers, cfg.PrimaryProvider)
 	if err != nil {
 		return nil, err
 	}
