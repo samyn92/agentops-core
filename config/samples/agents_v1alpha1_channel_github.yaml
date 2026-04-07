@@ -1,10 +1,10 @@
 # GitHub webhook channel example
-apiVersion: agents.agenticops.io/v1alpha1
+apiVersion: agents.agentops.io/v1alpha1
 kind: Channel
 metadata:
   name: github-pr-channel
   labels:
-    app.kubernetes.io/name: agenticops-core
+    app.kubernetes.io/name: agentops-core
     app.kubernetes.io/managed-by: kustomize
 spec:
   type: github
@@ -28,7 +28,7 @@ spec:
     Description: {{ .pull_request.body }}
 
   webhook:
-    host: webhooks.agenticops.example.com
+    host: webhooks.agentops.example.com
     path: /github/code-review
     ingressClassName: nginx
 

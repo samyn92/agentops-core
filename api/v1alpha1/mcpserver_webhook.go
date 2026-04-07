@@ -39,7 +39,7 @@ func (r *MCPServer) SetupWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/validate-agents-agenticops-io-v1alpha1-mcpserver,mutating=false,failurePolicy=fail,sideEffects=None,groups=agents.agenticops.io,resources=mcpservers,verbs=create;update,versions=v1alpha1,name=vmcpserver.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-agents-agentops-io-v1alpha1-mcpserver,mutating=false,failurePolicy=fail,sideEffects=None,groups=agents.agentops.io,resources=mcpservers,verbs=create;update,versions=v1alpha1,name=vmcpserver.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &MCPServer{}
 

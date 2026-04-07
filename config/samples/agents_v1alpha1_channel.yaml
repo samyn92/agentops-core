@@ -1,9 +1,9 @@
-apiVersion: agents.agenticops.io/v1alpha1
+apiVersion: agents.agentops.io/v1alpha1
 kind: Channel
 metadata:
   name: gitlab-mr-channel
   labels:
-    app.kubernetes.io/name: agenticops-core
+    app.kubernetes.io/name: agentops-core
     app.kubernetes.io/managed-by: kustomize
 spec:
   type: gitlab
@@ -29,7 +29,7 @@ spec:
     Focus on code quality, bugs, and security issues.
 
   webhook:
-    host: webhooks.agenticops.example.com
+    host: webhooks.agentops.example.com
     path: /gitlab/code-review
     ingressClassName: nginx
     tls:

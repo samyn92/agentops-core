@@ -1,4 +1,4 @@
-module github.com/samyn92/agenticops-core
+module github.com/samyn92/agentops-core
 
 go 1.26.0
 

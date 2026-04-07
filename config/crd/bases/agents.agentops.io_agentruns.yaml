@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: agentruns.agents.agenticops.io
+  name: agentruns.agents.agentops.io
 spec:
-  group: agents.agenticops.io
+  group: agents.agentops.io
   names:
     kind: AgentRun
     listKind: AgentRunList

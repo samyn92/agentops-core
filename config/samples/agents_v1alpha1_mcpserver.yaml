@@ -1,12 +1,12 @@
 # External mode: operator validates and health-checks an existing MCP server.
 # Use this when the MCP server is managed outside the operator (e.g. a SaaS
 # endpoint or a separate deployment).
-apiVersion: agents.agenticops.io/v1alpha1
+apiVersion: agents.agentops.io/v1alpha1
 kind: MCPServer
 metadata:
   name: gitlab-mcp
   labels:
-    app.kubernetes.io/name: agenticops-core
+    app.kubernetes.io/name: agentops-core
     app.kubernetes.io/managed-by: kustomize
 spec:
   url: "https://mcp.example.com/gitlab"
@@ -18,7 +18,7 @@ spec:
 # Deploy mode (commented out): operator manages the MCP server lifecycle.
 # Uncomment and replace `spec.image` with a real MCP server image to test.
 #
-# apiVersion: agents.agenticops.io/v1alpha1
+# apiVersion: agents.agentops.io/v1alpha1
 # kind: MCPServer
 # metadata:
 #   name: gitlab-mcp-deploy

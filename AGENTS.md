@@ -1,4 +1,4 @@
-# agenticops-core
+# agentops-core
 
 ## Development Environment
 
@@ -22,7 +22,7 @@ This creates:
 Edit code locally on your machine (files are live via hostPath), then shell into the dev pod:
 
 ```sh
-kubectl exec -it -n agent-system deploy/agenticops-dev -- bash
+kubectl exec -it -n agent-system deploy/agentops-dev -- bash
 ```
 
 Inside the pod:
@@ -44,12 +44,12 @@ kubectl config use-context k3s
 
 ### CRDs
 
-4 CRDs in API group `agents.agenticops.io/v1alpha1`:
+4 CRDs in API group `agents.agentops.io/v1alpha1`:
 
-- `agents.agents.agenticops.io` (short: `ag`)
-- `channels.agents.agenticops.io` (short: `ch`)
-- `agentruns.agents.agenticops.io` (short: `ar`)
-- `mcpservers.agents.agenticops.io` (short: `mcp`)
+- `agents.agents.agentops.io` (short: `ag`)
+- `channels.agents.agentops.io` (short: `ch`)
+- `agentruns.agents.agentops.io` (short: `ar`)
+- `mcpservers.agents.agentops.io` (short: `mcp`)
 
 ### Namespaces
 
@@ -68,7 +68,7 @@ as a standalone repo at `agentops-runtime-fantasy`.
 
 | Image | Source | Purpose |
 |-------|--------|---------|
-| `ghcr.io/samyn92/agenticops-operator` | `Dockerfile` (repo root) | Kubernetes operator |
+| `ghcr.io/samyn92/agentops-operator` | `Dockerfile` (repo root) | Kubernetes operator |
 | `ghcr.io/samyn92/agent-runtime-fantasy` | `images/agent-runtime-fantasy/` | Fantasy SDK agent runtime |
 | `ghcr.io/samyn92/mcp-gateway` | `images/mcp-gateway/` | MCP protocol gateway (spawn + proxy modes) |
 

@@ -22,19 +22,19 @@ import (
 	"fmt"
 	"strings"
 
-	agentsv1alpha1 "github.com/samyn92/agenticops-core/api/v1alpha1"
+	agentsv1alpha1 "github.com/samyn92/agentops-core/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
 	// LabelAgent is the standard label for the owning agent name.
-	LabelAgent = "agents.agenticops.io/agent"
+	LabelAgent = "agents.agentops.io/agent"
 	// LabelComponent distinguishes operator-created components.
-	LabelComponent = "agents.agenticops.io/component"
+	LabelComponent = "agents.agentops.io/component"
 	// LabelManagedBy marks resources managed by the operator.
 	LabelManagedBy = "app.kubernetes.io/managed-by"
 	// ManagedByValue is the value for the managed-by label.
-	ManagedByValue = "agenticops-operator"
+	ManagedByValue = "agentops-operator"
 
 	// AgentRuntimePort is the HTTP port for the agent runtime.
 	AgentRuntimePort = 4096

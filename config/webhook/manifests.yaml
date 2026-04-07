@@ -10,12 +10,12 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-agents-agenticops-io-v1alpha1-agent
+      path: /validate-agents-agentops-io-v1alpha1-agent
   failurePolicy: Fail
   name: vagent.kb.io
   rules:
   - apiGroups:
-    - agents.agenticops.io
+    - agents.agentops.io
     apiVersions:
     - v1alpha1
     operations:
@@ -30,12 +30,12 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-agents-agenticops-io-v1alpha1-channel
+      path: /validate-agents-agentops-io-v1alpha1-channel
   failurePolicy: Fail
   name: vchannel.kb.io
   rules:
   - apiGroups:
-    - agents.agenticops.io
+    - agents.agentops.io
     apiVersions:
     - v1alpha1
     operations:
@@ -50,12 +50,12 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-agents-agenticops-io-v1alpha1-mcpserver
+      path: /validate-agents-agentops-io-v1alpha1-mcpserver
   failurePolicy: Fail
   name: vmcpserver.kb.io
   rules:
   - apiGroups:
-    - agents.agenticops.io
+    - agents.agentops.io
     apiVersions:
     - v1alpha1
     operations:

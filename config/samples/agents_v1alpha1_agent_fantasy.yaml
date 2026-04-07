@@ -1,5 +1,5 @@
 # Example: Fantasy runtime daemon agent with OCI tools and context
-apiVersion: agents.agenticops.io/v1alpha1
+apiVersion: agents.agentops.io/v1alpha1
 kind: Agent
 metadata:
   name: code-reviewer

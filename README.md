@@ -1,4 +1,4 @@
-# agenticops-core
+# agentops-core
 
 Kubernetes operator and agent runtime for running AI coding agents as native Kubernetes workloads. Agents run the [Pi SDK](https://github.com/badlogic/pi-mono) inside containers, with the operator managing their full lifecycle: deployments, jobs, storage, MCP server bindings, channel bridges, and concurrency control.
 
@@ -75,7 +75,7 @@ EXTERNAL                       OPERATOR (reconciles)                     KUBERNE
 ## Project Structure
 
 ```
-agenticops-core/
+agentops-core/
   api/v1alpha1/           # CRD types (Agent, Channel, AgentRun, MCPServer)
   internal/
     controller/           # 4 reconcilers
@@ -116,8 +116,8 @@ make run
 ### Deploy to a cluster
 
 ```sh
-make docker-build docker-push IMG=ghcr.io/samyn92/agenticops-core:latest
-make deploy IMG=ghcr.io/samyn92/agenticops-core:latest
+make docker-build docker-push IMG=ghcr.io/samyn92/agentops-core:latest
+make deploy IMG=ghcr.io/samyn92/agentops-core:latest
 ```
 
 ### Apply sample resources
@@ -129,7 +129,7 @@ kubectl apply -k config/samples/
 ### Create a minimal agent
 
 ```yaml
-apiVersion: agents.agenticops.io/v1alpha1
+apiVersion: agents.agentops.io/v1alpha1
 kind: Agent
 metadata:
   name: my-agent
@@ -151,7 +151,7 @@ spec:
 ### Trigger a run
 
 ```yaml
-apiVersion: agents.agenticops.io/v1alpha1
+apiVersion: agents.agentops.io/v1alpha1
 kind: AgentRun
 metadata:
   name: test-run

@@ -1,9 +1,9 @@
-apiVersion: agents.agenticops.io/v1alpha1
+apiVersion: agents.agentops.io/v1alpha1
 kind: AgentRun
 metadata:
   name: review-run-001
   labels:
-    app.kubernetes.io/name: agenticops-core
+    app.kubernetes.io/name: agentops-core
     app.kubernetes.io/managed-by: kustomize
 spec:
   agentRef: code-review-agent

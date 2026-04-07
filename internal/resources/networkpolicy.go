@@ -17,7 +17,7 @@ limitations under the License.
 package resources
 
 import (
-	agentsv1alpha1 "github.com/samyn92/agenticops-core/api/v1alpha1"
+	agentsv1alpha1 "github.com/samyn92/agentops-core/api/v1alpha1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"

@@ -1,10 +1,10 @@
 # Slack chat channel example
-apiVersion: agents.agenticops.io/v1alpha1
+apiVersion: agents.agentops.io/v1alpha1
 kind: Channel
 metadata:
   name: slack-chat
   labels:
-    app.kubernetes.io/name: agenticops-core
+    app.kubernetes.io/name: agentops-core
     app.kubernetes.io/managed-by: kustomize
 spec:
   type: slack

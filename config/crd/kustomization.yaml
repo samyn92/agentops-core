@@ -2,10 +2,10 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
-- bases/agents.agenticops.io_agents.yaml
-- bases/agents.agenticops.io_channels.yaml
-- bases/agents.agenticops.io_agentruns.yaml
-- bases/agents.agenticops.io_mcpservers.yaml
+- bases/agents.agentops.io_agents.yaml
+- bases/agents.agentops.io_channels.yaml
+- bases/agents.agentops.io_agentruns.yaml
+- bases/agents.agentops.io_mcpservers.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

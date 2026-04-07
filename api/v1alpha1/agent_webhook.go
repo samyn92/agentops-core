@@ -48,7 +48,7 @@ func (r *Agent) SetupWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/validate-agents-agenticops-io-v1alpha1-agent,mutating=false,failurePolicy=fail,sideEffects=None,groups=agents.agenticops.io,resources=agents,verbs=create;update,versions=v1alpha1,name=vagent.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-agents-agentops-io-v1alpha1-agent,mutating=false,failurePolicy=fail,sideEffects=None,groups=agents.agentops.io,resources=agents,verbs=create;update,versions=v1alpha1,name=vagent.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &Agent{}
 

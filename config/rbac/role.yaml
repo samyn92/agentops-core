@@ -28,7 +28,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - agents.agenticops.io
+  - agents.agentops.io
   resources:
   - agentruns
   - agents
@@ -43,7 +43,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - agents.agenticops.io
+  - agents.agentops.io
   resources:
   - agentruns/finalizers
   - agents/finalizers
@@ -52,7 +52,7 @@ rules:
   verbs:
   - update
 - apiGroups:
-  - agents.agenticops.io
+  - agents.agentops.io
   resources:
   - agentruns/status
   - agents/status

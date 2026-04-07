@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: mcpservers.agents.agenticops.io
+  name: mcpservers.agents.agentops.io
 spec:
-  group: agents.agenticops.io
+  group: agents.agentops.io
   names:
     kind: MCPServer
     listKind: MCPServerList

@@ -17,7 +17,7 @@ limitations under the License.
 package resources
 
 import (
-	agentsv1alpha1 "github.com/samyn92/agenticops-core/api/v1alpha1"
+	agentsv1alpha1 "github.com/samyn92/agentops-core/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,7 +26,7 @@ import (
 // BuildAgentRunJob creates a Job for a task-mode AgentRun.
 func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent, mcpServers []agentsv1alpha1.MCPServer) *batchv1.Job {
 	labels := CommonLabels(agent.Name, "task-run")
-	labels["agents.agenticops.io/run"] = run.Name
+	labels["agents.agentops.io/run"] = run.Name
 
 	// Build the pod spec in task mode
 	podSpec := buildAgentPodSpec(agent, mcpServers, true)

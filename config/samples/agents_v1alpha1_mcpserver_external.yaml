@@ -1,10 +1,10 @@
 # External mode: reference an existing MCP server
-apiVersion: agents.agenticops.io/v1alpha1
+apiVersion: agents.agentops.io/v1alpha1
 kind: MCPServer
 metadata:
   name: external-k8s-mcp
   labels:
-    app.kubernetes.io/name: agenticops-core
+    app.kubernetes.io/name: agentops-core
     app.kubernetes.io/managed-by: kustomize
 spec:
   url: https://mcp.kubernetes.internal:8443

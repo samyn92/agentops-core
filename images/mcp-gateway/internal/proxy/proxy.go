@@ -17,7 +17,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/samyn92/agenticops-core/images/mcp-gateway/internal/permissions"
+	"github.com/samyn92/agentops-core/images/mcp-gateway/internal/permissions"
 )
 
 // Server is the proxy-mode gateway.

@@ -1,20 +1,20 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: agenticops-dev
+  name: agentops-dev
   namespace: agent-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: agenticops-dev
+  name: agentops-dev
 rules:
   # CRDs - manage our own CRDs
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Our CRD resources (agents.agenticops.io)
-  - apiGroups: ["agents.agenticops.io"]
+  # Our CRD resources (agents.agentops.io)
+  - apiGroups: ["agents.agentops.io"]
     resources: ["*"]
     verbs: ["*"]
   # Core resources the operator manages
@@ -49,34 +49,34 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: agenticops-dev
+  name: agentops-dev
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: agenticops-dev
+  name: agentops-dev
 subjects:
   - kind: ServiceAccount
-    name: agenticops-dev
+    name: agentops-dev
     namespace: agent-system
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: agenticops-dev
+  name: agentops-dev
   namespace: agent-system
   labels:
-    app: agenticops-dev
+    app: agentops-dev
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: agenticops-dev
+      app: agentops-dev
   template:
     metadata:
       labels:
-        app: agenticops-dev
+        app: agentops-dev
     spec:
-      serviceAccountName: agenticops-dev
+      serviceAccountName: agentops-dev
       containers:
         - name: dev
           image: golang:1.25
@@ -101,7 +101,7 @@ spec:
       volumes:
         - name: workspace
           hostPath:
-            path: /home/samy/dev/github.com/samyn92/agenticops-core
+            path: /home/samy/dev/github.com/samyn92/agentops-core
             type: Directory
         - name: go-cache
           emptyDir:

@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: channels.agents.agenticops.io
+  name: channels.agents.agentops.io
 spec:
-  group: agents.agenticops.io
+  group: agents.agentops.io
   names:
     kind: Channel
     listKind: ChannelList

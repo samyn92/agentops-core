@@ -8,7 +8,7 @@ on:
 env:
   GO_VERSION: "1.26"
   REGISTRY: ghcr.io
-  OPERATOR_IMAGE: ghcr.io/${{ github.repository_owner }}/agenticops-operator
+  OPERATOR_IMAGE: ghcr.io/${{ github.repository_owner }}/agentops-operator
   RUNTIME_FANTASY_IMAGE: ghcr.io/${{ github.repository_owner }}/agent-runtime-fantasy
   GATEWAY_IMAGE: ghcr.io/${{ github.repository_owner }}/mcp-gateway
 
@@ -175,6 +175,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ github.ref_name }}" \
-            --title "AgenticOps ${{ github.ref_name }}" \
+            --title "AgentOps ${{ github.ref_name }}" \
             --generate-notes \
             dist/install.yaml

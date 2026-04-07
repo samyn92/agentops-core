@@ -1,10 +1,10 @@
 # Example: Task mode agent with OCI tools, context, and scheduling
-apiVersion: agents.agenticops.io/v1alpha1
+apiVersion: agents.agentops.io/v1alpha1
 kind: Agent
 metadata:
   name: scheduled-oci-agent
   labels:
-    app.kubernetes.io/name: agenticops-core
+    app.kubernetes.io/name: agentops-core
     app.kubernetes.io/managed-by: kustomize
 spec:
   mode: task

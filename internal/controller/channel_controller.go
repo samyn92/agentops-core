@@ -34,8 +34,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	agentsv1alpha1 "github.com/samyn92/agenticops-core/api/v1alpha1"
-	"github.com/samyn92/agenticops-core/internal/resources"
+	agentsv1alpha1 "github.com/samyn92/agentops-core/api/v1alpha1"
+	"github.com/samyn92/agentops-core/internal/resources"
 )
 
 // ChannelReconciler reconciles a Channel object.
@@ -44,10 +44,10 @@ type ChannelReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=agents.agenticops.io,resources=channels,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=agents.agenticops.io,resources=channels/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=agents.agenticops.io,resources=channels/finalizers,verbs=update
-// +kubebuilder:rbac:groups=agents.agenticops.io,resources=agents,verbs=get;list;watch
+// +kubebuilder:rbac:groups=agents.agentops.io,resources=channels,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=agents.agentops.io,resources=channels/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=agents.agentops.io,resources=channels/finalizers,verbs=update
+// +kubebuilder:rbac:groups=agents.agentops.io,resources=agents,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete

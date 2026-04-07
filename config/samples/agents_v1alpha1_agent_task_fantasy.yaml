@@ -1,5 +1,5 @@
 # Example: Task mode agent (one-shot) with schedule
-apiVersion: agents.agenticops.io/v1alpha1
+apiVersion: agents.agentops.io/v1alpha1
 kind: Agent
 metadata:
   name: nightly-audit

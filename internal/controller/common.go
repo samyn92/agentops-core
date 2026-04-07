@@ -34,7 +34,7 @@ const (
 	// requeueInterval is the default requeue interval for controllers waiting on async work.
 	requeueInterval = 10 * time.Second
 	// fieldManager is the SSA field manager name for the operator.
-	fieldManager = "agenticops-operator"
+	fieldManager = "agentops-operator"
 )
 
 // reconcileOwnedResource creates or updates a child resource.

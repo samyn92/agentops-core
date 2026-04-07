@@ -1,4 +1,4 @@
-// mcp-gateway is the MCP protocol gateway for agenticops-core.
+// mcp-gateway is the MCP protocol gateway for agentops-core.
 //
 // It runs in two modes:
 //
@@ -32,9 +32,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/samyn92/agenticops-core/images/mcp-gateway/internal/permissions"
-	"github.com/samyn92/agenticops-core/images/mcp-gateway/internal/proxy"
-	"github.com/samyn92/agenticops-core/images/mcp-gateway/internal/spawn"
+	"github.com/samyn92/agentops-core/images/mcp-gateway/internal/permissions"
+	"github.com/samyn92/agentops-core/images/mcp-gateway/internal/proxy"
+	"github.com/samyn92/agentops-core/images/mcp-gateway/internal/spawn"
 )
 
 func main() {
