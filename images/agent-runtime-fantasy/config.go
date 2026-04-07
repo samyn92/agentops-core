@@ -22,6 +22,14 @@ type Config struct {
 	Temperature     *float64        `json:"temperature,omitempty"`
 	MaxOutputTokens *int64          `json:"maxOutputTokens,omitempty"`
 	MaxSteps        *int            `json:"maxSteps,omitempty"`
+
+	// Permission gate: list of tool names that require user approval before execution.
+	// If empty, no tools require approval (all run automatically).
+	PermissionTools []string `json:"permissionTools,omitempty"`
+
+	// EnableQuestionTool adds a built-in "question" tool that lets the agent
+	// ask the user interactive questions during execution.
+	EnableQuestionTool bool `json:"enableQuestionTool,omitempty"`
 }
 
 // ProviderEntry describes a configured provider.

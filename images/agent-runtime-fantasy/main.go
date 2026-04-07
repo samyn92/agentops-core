@@ -299,6 +299,129 @@ func runDaemon() error {
 		sessionCtx:  make(map[string]*sessionContext),
 	}
 
+	// Initialize permission gate (emits permission_asked via the session's active SSE emitter)
+	srv.permGate = newPermissionGate(
+		func(id, sessionId, toolName, input, description string) {
+			sc := srv.getOrCreateSessionCtx(sessionId)
+			sc.mu.Lock()
+			emit := sc.emitter
+			sc.mu.Unlock()
+			if emit != nil {
+				emit.emitPermissionAsked(id, sessionId, toolName, input, description)
+			}
+		},
+	)
+
+	// Initialize question gate (emits question_asked via the session's active SSE emitter)
+	srv.questionGate = newQuestionGate(
+		func(id, sessionId string, questions json.RawMessage) {
+			sc := srv.getOrCreateSessionCtx(sessionId)
+			sc.mu.Lock()
+			emit := sc.emitter
+			sc.mu.Unlock()
+			if emit != nil {
+				emit.emitQuestionAsked(id, sessionId, questions)
+			}
+		},
+	)
+
+	// Apply permission wrapping if configured
+	if len(cfg.PermissionTools) > 0 {
+		agent := bundle.agent
+		opts := []fantasy.AgentOption{}
+
+		// Rebuild tools with permission gates applied
+		tools := buildBuiltinTools(cfg.BuiltinTools)
+		if len(cfg.Tools) > 0 {
+			ociTools, _, _ := loadOCITools(ctx, cfg.Tools)
+			tools = append(tools, ociTools...)
+		}
+		if len(cfg.MCPServers) > 0 {
+			gwTools, _, _ := loadGatewayMCPTools(ctx, cfg.MCPServers)
+			tools = append(tools, gwTools...)
+		}
+		tools = wrapToolsWithHooks(tools, cfg.ToolHooks)
+
+		// Wrap with permission gates
+		tools = srv.permGate.wrapTools(tools, cfg.PermissionTools)
+
+		// Add orchestration tools
+		k8sClient, _ := NewK8sClient()
+		if k8sClient != nil {
+			tools = append(tools, newRunAgentTool(k8sClient), newGetAgentRunTool(k8sClient))
+		}
+
+		// Add question tool if enabled
+		if cfg.EnableQuestionTool {
+			tools = append(tools, newQuestionTool(srv.questionGate))
+		}
+
+		opts = append(opts, fantasy.WithTools(tools...))
+		if cfg.SystemPrompt != "" {
+			opts = append(opts, fantasy.WithSystemPrompt(cfg.SystemPrompt))
+		}
+		if cfg.Temperature != nil {
+			opts = append(opts, fantasy.WithTemperature(*cfg.Temperature))
+		}
+		if cfg.MaxOutputTokens != nil {
+			opts = append(opts, fantasy.WithMaxOutputTokens(*cfg.MaxOutputTokens))
+		}
+		if cfg.MaxSteps != nil {
+			opts = append(opts, fantasy.WithStopConditions(fantasy.StepCountIs(*cfg.MaxSteps)))
+		}
+
+		// Resolve model
+		model, _ := resolveModel(ctx, cfg.PrimaryModel, bundle.providers, cfg.PrimaryProvider)
+		if model != nil {
+			bundle.agent = fantasy.NewAgent(model, opts...)
+		} else {
+			_ = agent // keep original if model resolution fails
+		}
+
+		slog.Info("permission gates applied", "tools", cfg.PermissionTools)
+	} else if cfg.EnableQuestionTool {
+		// Only need to add question tool (no permission wrapping needed)
+		// Rebuild agent with question tool added
+		tools := buildBuiltinTools(cfg.BuiltinTools)
+		if len(cfg.Tools) > 0 {
+			ociTools, _, _ := loadOCITools(ctx, cfg.Tools)
+			tools = append(tools, ociTools...)
+		}
+		if len(cfg.MCPServers) > 0 {
+			gwTools, _, _ := loadGatewayMCPTools(ctx, cfg.MCPServers)
+			tools = append(tools, gwTools...)
+		}
+		tools = wrapToolsWithHooks(tools, cfg.ToolHooks)
+
+		k8sClient, _ := NewK8sClient()
+		if k8sClient != nil {
+			tools = append(tools, newRunAgentTool(k8sClient), newGetAgentRunTool(k8sClient))
+		}
+
+		tools = append(tools, newQuestionTool(srv.questionGate))
+
+		opts := []fantasy.AgentOption{fantasy.WithTools(tools...)}
+		if cfg.SystemPrompt != "" {
+			opts = append(opts, fantasy.WithSystemPrompt(cfg.SystemPrompt))
+		}
+		if cfg.Temperature != nil {
+			opts = append(opts, fantasy.WithTemperature(*cfg.Temperature))
+		}
+		if cfg.MaxOutputTokens != nil {
+			opts = append(opts, fantasy.WithMaxOutputTokens(*cfg.MaxOutputTokens))
+		}
+		if cfg.MaxSteps != nil {
+			opts = append(opts, fantasy.WithStopConditions(fantasy.StepCountIs(*cfg.MaxSteps)))
+		}
+
+		model, _ := resolveModel(ctx, cfg.PrimaryModel, bundle.providers, cfg.PrimaryProvider)
+		if model != nil {
+			bundle.agent = fantasy.NewAgent(model, opts...)
+		}
+
+		slog.Info("question tool enabled")
+	}
+
 	mux := http.NewServeMux()
 
 	// Legacy endpoints (kept for backward compat, use default session)
@@ -319,6 +442,10 @@ func runDaemon() error {
 	mux.HandleFunc("POST /sessions/{id}/steer", srv.handleSessionSteer)
 	mux.HandleFunc("DELETE /sessions/{id}/abort", srv.handleSessionAbort)
 
+	// Permission and question reply endpoints
+	mux.HandleFunc("POST /sessions/{id}/permission/{pid}/reply", srv.handlePermissionReply)
+	mux.HandleFunc("POST /sessions/{id}/question/{qid}/reply", srv.handleQuestionReply)
+
 	// Health and status
 	mux.HandleFunc("GET /healthz", srv.handleHealthz)
 	mux.HandleFunc("GET /status", srv.handleStatus)
@@ -337,10 +464,12 @@ func runDaemon() error {
 
 // sessionContext tracks per-session runtime state (cancel func, busy flag, steer msgs).
 type sessionContext struct {
-	mu       sync.Mutex
-	busy     bool
-	cancel   context.CancelFunc
-	steerMsg string // pending steer message, consumed on next step boundary
+	mu        sync.Mutex
+	busy      bool
+	cancel    context.CancelFunc
+	steerMsg  string      // pending steer message, consumed on next step boundary
+	emitter   *fepEmitter // current SSE emitter (set during streaming)
+	sessionId string      // this session's ID
 }
 
 func (sc *sessionContext) popSteerMessage() string {
@@ -352,11 +481,13 @@ func (sc *sessionContext) popSteerMessage() string {
 }
 
 type daemonServer struct {
-	bundle      *agentBundle
-	cfg         *Config
-	sessions    *SessionStore
-	activeModel string
-	totalSteps  int
+	bundle       *agentBundle
+	cfg          *Config
+	sessions     *SessionStore
+	activeModel  string
+	totalSteps   int
+	permGate     *permissionGate
+	questionGate *questionGate
 
 	mu         sync.Mutex
 	sessionCtx map[string]*sessionContext // sessionId -> runtime context
@@ -590,6 +721,21 @@ func (s *daemonServer) handleSessionPromptStream(w http.ResponseWriter, r *http.
 
 	emit := newFEPEmitter(w)
 
+	// Store the emitter and sessionId on the session context so permission/question
+	// gates can emit FEP events through the active SSE stream.
+	sc.mu.Lock()
+	sc.emitter = emit
+	sc.sessionId = sessionId
+	sc.mu.Unlock()
+	defer func() {
+		sc.mu.Lock()
+		sc.emitter = nil
+		sc.mu.Unlock()
+	}()
+
+	// Inject sessionId into Go context so tools (permission gate, question tool) can read it.
+	ctx = context.WithValue(ctx, sessionIdContextKey{}, sessionId)
+
 	// Get conversation history for this session
 	messages := s.sessions.GetMessages(sessionId)
 
@@ -821,6 +967,48 @@ func (s *daemonServer) handleSessionAbort(w http.ResponseWriter, r *http.Request
 
 	slog.Info("session aborted", "session", sessionId)
 
+	w.Header().Set("Content-Type", "application/json")
+	io.WriteString(w, `{"ok":true}`)
+}
+
+// ── Permission reply handler ──
+
+func (s *daemonServer) handlePermissionReply(w http.ResponseWriter, r *http.Request) {
+	permId := r.PathValue("pid")
+
+	var req PermissionResponse
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Response == "" {
+		http.Error(w, `{"error":"response is required (once|always|deny)"}`, http.StatusBadRequest)
+		return
+	}
+
+	if !s.permGate.reply(permId, req) {
+		http.Error(w, `{"error":"permission request not found or already resolved"}`, http.StatusNotFound)
+		return
+	}
+
+	slog.Info("permission replied", "id", permId, "response", req.Response)
+	w.Header().Set("Content-Type", "application/json")
+	io.WriteString(w, `{"ok":true}`)
+}
+
+// ── Question reply handler ──
+
+func (s *daemonServer) handleQuestionReply(w http.ResponseWriter, r *http.Request) {
+	qId := r.PathValue("qid")
+
+	var req QuestionResponse
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"answers are required"}`, http.StatusBadRequest)
+		return
+	}
+
+	if !s.questionGate.reply(qId, req) {
+		http.Error(w, `{"error":"question not found or already resolved"}`, http.StatusNotFound)
+		return
+	}
+
+	slog.Info("question replied", "id", qId)
 	w.Header().Set("Content-Type", "application/json")
 	io.WriteString(w, `{"ok":true}`)
 }
