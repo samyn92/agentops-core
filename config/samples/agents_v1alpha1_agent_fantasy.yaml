@@ -1,26 +1,24 @@
-# Example: Fantasy runtime daemon agent
+# Example: Fantasy runtime daemon agent with OCI tools and context
 apiVersion: agents.agenticops.io/v1alpha1
 kind: Agent
 metadata:
-  name: code-reviewer-fantasy
+  name: code-reviewer
   namespace: agents
 spec:
   mode: daemon
   model: anthropic/claude-sonnet-4-20250514
 
-  # Fantasy runtime — Go with Charm Fantasy SDK
-  fantasy:
-    image: ghcr.io/samyn92/agent-runtime-fantasy:latest
-    builtinTools:
-      - bash
-      - read
-      - edit
-      - write
-      - grep
-      - glob
-    temperature: 0.3
-    maxOutputTokens: 8192
-    maxSteps: 50
+  image: ghcr.io/samyn92/agent-runtime-fantasy:latest
+  builtinTools:
+    - bash
+    - read
+    - edit
+    - write
+    - grep
+    - glob
+  temperature: 0.3
+  maxOutputTokens: 8192
+  maxSteps: 50
 
   providers:
     - name: anthropic
@@ -28,7 +26,7 @@ spec:
         name: llm-keys
         key: anthropic-api-key
 
-  # OCI tools packaged as MCP servers — works with any runtime
+  # OCI tools packaged as MCP servers
   toolRefs:
     - name: k8s-helper
       ociRef:

@@ -25,88 +25,38 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func piAgent() *agentsv1alpha1.Agent {
-	return &agentsv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-pi", Namespace: "agents"},
-		Spec: agentsv1alpha1.AgentSpec{
-			Mode:  agentsv1alpha1.AgentModeDaemon,
-			Model: "anthropic/claude-sonnet-4-20250514",
-			Providers: []agentsv1alpha1.ProviderRef{
-				{Name: "anthropic", ApiKeySecret: agentsv1alpha1.SecretKeyRef{Name: "keys", Key: "key"}},
-			},
-			Pi: &agentsv1alpha1.PiRuntimeConfig{
-				BuiltinTools:  []string{"read", "bash", "edit"},
-				ThinkingLevel: "medium",
-			},
-			SystemPrompt: "You are helpful.",
-		},
-	}
-}
-
-func fantasyAgent() *agentsv1alpha1.Agent {
+func testAgent() *agentsv1alpha1.Agent {
 	temp := 0.5
 	maxTokens := int64(4096)
 	maxSteps := 50
 	return &agentsv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-fantasy", Namespace: "agents"},
+		ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: "agents"},
 		Spec: agentsv1alpha1.AgentSpec{
 			Mode:  agentsv1alpha1.AgentModeDaemon,
 			Model: "anthropic/claude-sonnet-4-20250514",
 			Providers: []agentsv1alpha1.ProviderRef{
 				{Name: "anthropic", ApiKeySecret: agentsv1alpha1.SecretKeyRef{Name: "keys", Key: "key"}},
 			},
-			Fantasy: &agentsv1alpha1.FantasyRuntimeConfig{
-				BuiltinTools:    []string{"bash", "read", "edit", "write"},
-				Temperature:     &temp,
-				MaxOutputTokens: &maxTokens,
-				MaxSteps:        &maxSteps,
-			},
-			SystemPrompt: "You are helpful.",
+			BuiltinTools:    []string{"bash", "read", "edit", "write"},
+			Temperature:     &temp,
+			MaxOutputTokens: &maxTokens,
+			MaxSteps:        &maxSteps,
+			SystemPrompt:    "You are helpful.",
 		},
 	}
 }
 
 // ── ConfigMap tests ──
 
-func TestBuildAgentConfigMap_Pi(t *testing.T) {
-	agent := piAgent()
+func TestBuildAgentConfigMap(t *testing.T) {
+	agent := testAgent()
 	cm, err := BuildAgentConfigMap(agent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	data := cm.Data["config.json"]
-	var cfg PiExtensionConfig
-	if err := json.Unmarshal([]byte(data), &cfg); err != nil {
-		t.Fatalf("failed to parse config: %v", err)
-	}
-
-	if cfg.Runtime != "pi" {
-		t.Errorf("expected runtime=pi, got %q", cfg.Runtime)
-	}
-	if cfg.PrimaryModel != "anthropic/claude-sonnet-4-20250514" {
-		t.Errorf("unexpected model: %s", cfg.PrimaryModel)
-	}
-	if len(cfg.BuiltinTools) != 3 {
-		t.Errorf("expected 3 builtinTools, got %d", len(cfg.BuiltinTools))
-	}
-	if cfg.ThinkingLevel != "medium" {
-		t.Errorf("expected thinkingLevel=medium, got %q", cfg.ThinkingLevel)
-	}
-	if cfg.SystemPrompt != "You are helpful." {
-		t.Errorf("unexpected systemPrompt: %q", cfg.SystemPrompt)
-	}
-}
-
-func TestBuildAgentConfigMap_Fantasy(t *testing.T) {
-	agent := fantasyAgent()
-	cm, err := BuildAgentConfigMap(agent)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	data := cm.Data["config.json"]
-	var cfg FantasyExtensionConfig
+	var cfg AgentConfig
 	if err := json.Unmarshal([]byte(data), &cfg); err != nil {
 		t.Fatalf("failed to parse config: %v", err)
 	}
@@ -129,21 +79,15 @@ func TestBuildAgentConfigMap_Fantasy(t *testing.T) {
 	if cfg.MaxSteps == nil || *cfg.MaxSteps != 50 {
 		t.Errorf("unexpected maxSteps: %v", cfg.MaxSteps)
 	}
-}
-
-func TestBuildAgentConfigMap_NoRuntime(t *testing.T) {
-	agent := piAgent()
-	agent.Spec.Pi = nil
-	_, err := BuildAgentConfigMap(agent)
-	if err == nil {
-		t.Fatal("expected error when no runtime configured")
+	if cfg.SystemPrompt != "You are helpful." {
+		t.Errorf("unexpected systemPrompt: %q", cfg.SystemPrompt)
 	}
 }
 
 // ── Deployment tests ──
 
-func TestBuildAgentDeployment_Pi(t *testing.T) {
-	agent := piAgent()
+func TestBuildAgentDeployment(t *testing.T) {
+	agent := testAgent()
 	deploy := BuildAgentDeployment(agent, nil)
 
 	containers := deploy.Spec.Template.Spec.Containers
@@ -155,41 +99,6 @@ func TestBuildAgentDeployment_Pi(t *testing.T) {
 	if main.Name != "agent-runtime" {
 		t.Errorf("expected container name 'agent-runtime', got %q", main.Name)
 	}
-	if main.Image != agentsv1alpha1.DefaultPiImage {
-		t.Errorf("expected image %q, got %q", agentsv1alpha1.DefaultPiImage, main.Image)
-	}
-	if main.Command[0] != "node" {
-		t.Errorf("expected 'node' command, got %q", main.Command[0])
-	}
-	if !strings.Contains(strings.Join(main.Command, " "), "agent-server.js") {
-		t.Errorf("expected agent-server.js in command: %v", main.Command)
-	}
-
-	// Should have extensions and skills volumes
-	hasExt, hasSkills := false, false
-	for _, v := range deploy.Spec.Template.Spec.Volumes {
-		if v.Name == VolumeExtensions {
-			hasExt = true
-		}
-		if v.Name == VolumeSkills {
-			hasSkills = true
-		}
-	}
-	if !hasExt {
-		t.Error("expected extensions volume for Pi runtime")
-	}
-	if !hasSkills {
-		t.Error("expected skills volume for Pi runtime")
-	}
-}
-
-func TestBuildAgentDeployment_Fantasy(t *testing.T) {
-	agent := fantasyAgent()
-	deploy := BuildAgentDeployment(agent, nil)
-
-	containers := deploy.Spec.Template.Spec.Containers
-	main := containers[0]
-
 	if main.Image != agentsv1alpha1.DefaultFantasyImage {
 		t.Errorf("expected image %q, got %q", agentsv1alpha1.DefaultFantasyImage, main.Image)
 	}
@@ -199,20 +108,10 @@ func TestBuildAgentDeployment_Fantasy(t *testing.T) {
 	if len(main.Command) < 2 || main.Command[1] != "daemon" {
 		t.Errorf("expected 'daemon' arg, got %v", main.Command)
 	}
-
-	// Should NOT have extensions/skills volumes
-	for _, v := range deploy.Spec.Template.Spec.Volumes {
-		if v.Name == VolumeExtensions {
-			t.Error("unexpected extensions volume for Fantasy runtime")
-		}
-		if v.Name == VolumeSkills {
-			t.Error("unexpected skills volume for Fantasy runtime")
-		}
-	}
 }
 
 func TestBuildAgentDeployment_EnvVars(t *testing.T) {
-	agent := fantasyAgent()
+	agent := testAgent()
 	deploy := BuildAgentDeployment(agent, nil)
 
 	main := deploy.Spec.Template.Spec.Containers[0]
@@ -226,8 +125,8 @@ func TestBuildAgentDeployment_EnvVars(t *testing.T) {
 	if envMap["AGENT_RUNTIME"] != "fantasy" {
 		t.Errorf("expected AGENT_RUNTIME=fantasy, got %q", envMap["AGENT_RUNTIME"])
 	}
-	if envMap["AGENT_NAME"] != "test-fantasy" {
-		t.Errorf("expected AGENT_NAME=test-fantasy, got %q", envMap["AGENT_NAME"])
+	if envMap["AGENT_NAME"] != "test-agent" {
+		t.Errorf("expected AGENT_NAME=test-agent, got %q", envMap["AGENT_NAME"])
 	}
 	if envMap["AGENT_MODE"] != "daemon" {
 		t.Errorf("expected AGENT_MODE=daemon, got %q", envMap["AGENT_MODE"])
@@ -235,8 +134,8 @@ func TestBuildAgentDeployment_EnvVars(t *testing.T) {
 }
 
 func TestBuildAgentDeployment_CustomImage(t *testing.T) {
-	agent := fantasyAgent()
-	agent.Spec.Fantasy.Image = "custom-registry.io/my-agent:v2"
+	agent := testAgent()
+	agent.Spec.Image = "custom-registry.io/my-agent:v2"
 	deploy := BuildAgentDeployment(agent, nil)
 
 	if deploy.Spec.Template.Spec.Containers[0].Image != "custom-registry.io/my-agent:v2" {
@@ -245,7 +144,7 @@ func TestBuildAgentDeployment_CustomImage(t *testing.T) {
 }
 
 func TestBuildAgentDeployment_HealthCheck(t *testing.T) {
-	agent := fantasyAgent()
+	agent := testAgent()
 	deploy := BuildAgentDeployment(agent, nil)
 
 	main := deploy.Spec.Template.Spec.Containers[0]
@@ -262,14 +161,14 @@ func TestBuildAgentDeployment_HealthCheck(t *testing.T) {
 
 // ── Job tests ──
 
-func TestBuildAgentRunJob_Fantasy(t *testing.T) {
-	agent := fantasyAgent()
+func TestBuildAgentRunJob(t *testing.T) {
+	agent := testAgent()
 	agent.Spec.Mode = agentsv1alpha1.AgentModeTask
 
 	run := &agentsv1alpha1.AgentRun{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-run", Namespace: "agents"},
 		Spec: agentsv1alpha1.AgentRunSpec{
-			AgentRef: "test-fantasy",
+			AgentRef: "test-agent",
 			Prompt:   "Do something",
 		},
 	}
@@ -301,7 +200,7 @@ func TestBuildAgentRunJob_Fantasy(t *testing.T) {
 // ── MCP ConfigMap tests ──
 
 func TestBuildMCPConfigMap_NoServers(t *testing.T) {
-	agent := piAgent()
+	agent := testAgent()
 	cm, err := BuildMCPConfigMap(agent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -312,7 +211,7 @@ func TestBuildMCPConfigMap_NoServers(t *testing.T) {
 }
 
 func TestBuildMCPConfigMap_WithServers(t *testing.T) {
-	agent := piAgent()
+	agent := testAgent()
 	agent.Spec.MCPServers = []agentsv1alpha1.MCPServerBinding{
 		{Name: "github-mcp"},
 	}

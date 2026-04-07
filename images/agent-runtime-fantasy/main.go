@@ -527,6 +527,62 @@ func (s *daemonServer) deleteSessionCtx(sessionId string) {
 	}
 }
 
+// generateTitle fires a background goroutine that calls the LLM to generate
+// a short, descriptive title for a session. Title stays empty until ready;
+// the frontend hides untitled sessions in the sidebar.
+func (s *daemonServer) generateTitle(sessionId, userPrompt string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Use titleModel if configured, otherwise fall back to primaryModel
+		modelStr := s.cfg.TitleModel
+		if modelStr == "" {
+			modelStr = s.cfg.PrimaryModel
+		}
+
+		model, err := resolveModel(ctx, modelStr, s.bundle.providers, s.cfg.PrimaryProvider)
+		if err != nil {
+			slog.Warn("title generation: failed to resolve model", "error", err)
+			return
+		}
+
+		temp := 0.3
+		var maxTok int64 = 25
+		titleAgent := fantasy.NewAgent(model,
+			fantasy.WithSystemPrompt("You are a title generator. Given a user message, output ONLY a short title (max 6 words) that summarizes the topic. No explanation, no quotes, no punctuation at the end. Just the title words."),
+			fantasy.WithTemperature(temp),
+			fantasy.WithMaxOutputTokens(maxTok),
+		)
+
+		result, err := titleAgent.Generate(ctx, fantasy.AgentCall{
+			Prompt: fmt.Sprintf("Generate a title for this message: %s", userPrompt),
+		})
+		if err != nil {
+			slog.Warn("title generation: LLM call failed", "error", err)
+			return
+		}
+
+		title := strings.TrimSpace(result.Response.Content.Text())
+		if title == "" {
+			return
+		}
+		// Strip quotes and trailing punctuation the model might add
+		title = strings.Trim(title, `"'`)
+		title = strings.TrimRight(title, ".!?;:,")
+		title = strings.TrimSpace(title)
+		if title == "" {
+			return
+		}
+		if len(title) > 80 {
+			title = truncate(title, 80)
+		}
+
+		s.sessions.UpdateTitle(sessionId, title)
+		slog.Info("session title generated", "session", sessionId, "title", title)
+	}()
+}
+
 // ── Request/Response types ──
 
 type promptRequest struct {
@@ -664,6 +720,11 @@ func (s *daemonServer) handleSessionPrompt(w http.ResponseWriter, r *http.Reques
 
 	messages := s.sessions.GetMessages(sessionId)
 
+	// Fire title generation immediately (background goroutine, doesn't block)
+	if sess.MessageCount == 0 {
+		s.generateTitle(sessionId, req.Prompt)
+	}
+
 	result, usedModel, err := generateWithFallback(ctx, s.cfg, s.bundle, fantasy.AgentCall{
 		Prompt:   req.Prompt,
 		Messages: messages,
@@ -681,15 +742,13 @@ func (s *daemonServer) handleSessionPrompt(w http.ResponseWriter, r *http.Reques
 		s.sessions.AppendMessages(sessionId, step.Messages...)
 	}
 
-	// Auto-title if this is the first message
-	if sess.MessageCount == 0 {
-		s.sessions.UpdateTitle(sessionId, truncate(req.Prompt, 80))
-	}
-
 	s.mu.Lock()
 	s.activeModel = usedModel
 	s.totalSteps += len(result.Steps)
 	s.mu.Unlock()
+
+	// Persist usage and model so the console can display them after a browser refresh
+	s.sessions.UpdateUsage(sessionId, result.TotalUsage, usedModel, result.Steps)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(promptResponse{Output: output, Model: usedModel})
@@ -699,7 +758,7 @@ func (s *daemonServer) handleSessionPrompt(w http.ResponseWriter, r *http.Reques
 
 func (s *daemonServer) handleSessionPromptStream(w http.ResponseWriter, r *http.Request) {
 	sessionId := r.PathValue("id")
-	_, ok := s.sessions.Get(sessionId)
+	sess, ok := s.sessions.Get(sessionId)
 	if !ok {
 		http.Error(w, `{"error":"session not found"}`, http.StatusNotFound)
 		return
@@ -759,6 +818,11 @@ func (s *daemonServer) handleSessionPromptStream(w http.ResponseWriter, r *http.
 
 	// Get conversation history for this session
 	messages := s.sessions.GetMessages(sessionId)
+
+	// Fire title generation immediately (background goroutine, doesn't block)
+	if sess.MessageCount == 0 {
+		s.generateTitle(sessionId, req.Prompt)
+	}
 
 	// Step counter (shared across callbacks)
 	var stepCount int
@@ -924,12 +988,6 @@ func (s *daemonServer) handleSessionPromptStream(w http.ResponseWriter, r *http.
 			s.sessions.AppendMessages(sessionId, step.Messages...)
 		}
 
-		// Auto-title from first prompt
-		sess, ok := s.sessions.Get(sessionId)
-		if ok && sess.MessageCount <= 2 {
-			s.sessions.UpdateTitle(sessionId, truncate(req.Prompt, 80))
-		}
-
 		stepMu.Lock()
 		finalSteps := stepCount
 		stepMu.Unlock()
@@ -941,6 +999,9 @@ func (s *daemonServer) handleSessionPromptStream(w http.ResponseWriter, r *http.
 
 		// Emit agent finish with total usage
 		emit.emitAgentFinish(sessionId, result.TotalUsage, finalSteps, usedModel)
+
+		// Persist usage and model on the session so the console can display them after a browser refresh
+		s.sessions.UpdateUsage(sessionId, result.TotalUsage, usedModel, result.Steps)
 	}
 
 	// Emit idle

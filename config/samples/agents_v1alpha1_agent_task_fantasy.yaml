@@ -1,4 +1,4 @@
-# Example: Fantasy runtime task agent (one-shot)
+# Example: Task mode agent (one-shot) with schedule
 apiVersion: agents.agenticops.io/v1alpha1
 kind: Agent
 metadata:
@@ -8,13 +8,12 @@ spec:
   mode: task
   model: anthropic/claude-sonnet-4-20250514
 
-  fantasy:
-    builtinTools:
-      - bash
-      - read
-      - grep
-      - glob
-    maxSteps: 30
+  builtinTools:
+    - bash
+    - read
+    - grep
+    - glob
+  maxSteps: 30
 
   providers:
     - name: anthropic

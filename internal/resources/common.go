@@ -46,30 +46,25 @@ const (
 	// CraneImage is the OCI puller used in init containers.
 	CraneImage = "gcr.io/go-containerregistry/crane:debug"
 
-	// Default runtime images.
-	DefaultPiImage      = "ghcr.io/samyn92/agent-runtime-pi:latest"
+	// DefaultFantasyImage is the default image for the Fantasy runtime.
 	DefaultFantasyImage = "ghcr.io/samyn92/agent-runtime-fantasy:latest"
 
 	// MCPGatewayImage is the MCP protocol gateway image (spawn + proxy modes).
 	MCPGatewayImage = "ghcr.io/samyn92/mcp-gateway:latest"
 
 	// Volume names.
-	VolumeData       = "data"
-	VolumeTools      = "tools"
-	VolumeExtensions = "extensions"
-	VolumeSkills     = "skills"
-	VolumeConfig     = "operator-config"
-	VolumeGateway    = "gateway-config"
-	VolumeMCP        = "mcp-config"
+	VolumeData    = "data"
+	VolumeTools   = "tools"
+	VolumeConfig  = "operator-config"
+	VolumeGateway = "gateway-config"
+	VolumeMCP     = "mcp-config"
 
 	// Mount paths.
-	MountData       = "/data"
-	MountTools      = "/tools"
-	MountExtensions = "/extensions"
-	MountSkills     = "/skills"
-	MountConfig     = "/etc/operator"
-	MountGateway    = "/etc/gateway"
-	MountMCP        = "/etc/mcp"
+	MountData    = "/data"
+	MountTools   = "/tools"
+	MountConfig  = "/etc/operator"
+	MountGateway = "/etc/gateway"
+	MountMCP     = "/etc/mcp"
 )
 
 // CommonLabels returns the standard set of labels for an agent-owned resource.

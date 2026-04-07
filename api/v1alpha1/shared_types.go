@@ -94,25 +94,6 @@ type ProviderRef struct {
 }
 
 // -------------------------------------------------------------------
-// Extensions (Pi runtime only)
-// -------------------------------------------------------------------
-
-// ExtensionRef loads a Pi extension from OCI with optional env/secrets.
-// Only used when spec.pi is set.
-type ExtensionRef struct {
-	// Logical name.
-	Name string `json:"name"`
-	// OCI artifact containing the extension.
-	OCIRef OCIRef `json:"ociRef"`
-	// Plain-text environment variables.
-	// +optional
-	Env map[string]string `json:"env,omitempty"`
-	// Secret-backed environment variables.
-	// +optional
-	Secrets []SecretEnvVar `json:"secrets,omitempty"`
-}
-
-// -------------------------------------------------------------------
 // Context files
 // -------------------------------------------------------------------
 
@@ -133,7 +114,7 @@ type MCPServerBinding struct {
 	// Per-agent deny/allow rules for MCP tool calls.
 	// +optional
 	Permissions *MCPPermissions `json:"permissions,omitempty"`
-	// MCP tools to promote to first-class Pi tools (registered directly, not via proxy).
+	// MCP tools to promote to first-class tools (registered directly, not via proxy).
 	// +optional
 	DirectTools []string `json:"directTools,omitempty"`
 }
@@ -145,23 +126,6 @@ type MCPPermissions struct {
 	Mode string `json:"mode"`
 	// Rules in the form "tool_name", "tool_name:arg=value", or "tool_name:arg=pattern*".
 	Rules []string `json:"rules"`
-}
-
-// -------------------------------------------------------------------
-// Compaction (Pi runtime, daemon only)
-// -------------------------------------------------------------------
-
-// CompactionSpec controls Pi session compaction behavior.
-// Only used when spec.pi is set with mode=daemon.
-type CompactionSpec struct {
-	// Whether compaction is enabled. Default: true.
-	// +optional
-	Enabled *bool `json:"enabled,omitempty"`
-	// Strategy: auto (default), manual, or off.
-	// +optional
-	// +kubebuilder:validation:Enum=auto;manual;off
-	// +kubebuilder:default=auto
-	Strategy string `json:"strategy,omitempty"`
 }
 
 // -------------------------------------------------------------------

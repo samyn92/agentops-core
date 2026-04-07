@@ -27,7 +27,7 @@ import (
 )
 
 // ====================================================================
-// Shared config types (used by both runtimes)
+// Config types
 // ====================================================================
 
 // ToolEntry describes a tool package path.
@@ -60,45 +60,8 @@ type ContextEntry struct {
 	Path string `json:"path"`
 }
 
-// ====================================================================
-// Pi-specific config types
-// ====================================================================
-
-// PiExtensionConfig is the JSON structure mounted at /etc/operator/config.json for Pi runtime.
-type PiExtensionConfig struct {
-	Runtime        string           `json:"runtime"`
-	Tools          []ToolEntry      `json:"tools"`
-	MCPServers     []MCPEntry       `json:"mcpServers,omitempty"`
-	Compaction     *CompactionEntry `json:"compaction,omitempty"`
-	Providers      []ProviderEntry  `json:"providers"`
-	PrimaryModel   string           `json:"primaryModel"`
-	FallbackModels []string         `json:"fallbackModels,omitempty"`
-	ToolHooks      *ToolHooksEntry  `json:"toolHooks,omitempty"`
-	Skills         []SkillEntry     `json:"skills,omitempty"`
-	SystemPrompt   string           `json:"systemPrompt,omitempty"`
-	ContextFiles   []ContextEntry   `json:"contextFiles,omitempty"`
-	BuiltinTools   []string         `json:"builtinTools,omitempty"`
-	ThinkingLevel  string           `json:"thinkingLevel,omitempty"`
-}
-
-// CompactionEntry holds compaction config.
-type CompactionEntry struct {
-	Enabled  bool   `json:"enabled"`
-	Strategy string `json:"strategy"`
-}
-
-// SkillEntry describes a skill path.
-type SkillEntry struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
-}
-
-// ====================================================================
-// Fantasy-specific config types
-// ====================================================================
-
-// FantasyExtensionConfig is the JSON structure mounted at /etc/operator/config.json for Fantasy runtime.
-type FantasyExtensionConfig struct {
+// AgentConfig is the JSON structure mounted at /etc/operator/config.json for the Fantasy runtime.
+type AgentConfig struct {
 	Runtime         string          `json:"runtime"`
 	Providers       []ProviderEntry `json:"providers"`
 	PrimaryModel    string          `json:"primaryModel"`
@@ -115,23 +78,55 @@ type FantasyExtensionConfig struct {
 }
 
 // ====================================================================
-// ConfigMap builder (dispatches by runtime)
+// ConfigMap builder
 // ====================================================================
 
 // BuildAgentConfigMap generates the operator extension ConfigMap from an Agent spec.
 func BuildAgentConfigMap(agent *agentsv1alpha1.Agent) (*corev1.ConfigMap, error) {
-	var data []byte
-	var err error
-
-	switch {
-	case agent.Spec.Pi != nil:
-		data, err = buildPiConfig(agent)
-	case agent.Spec.Fantasy != nil:
-		data, err = buildFantasyConfig(agent)
-	default:
-		return nil, fmt.Errorf("no runtime configured")
+	config := AgentConfig{
+		Runtime:         "fantasy",
+		PrimaryModel:    agent.Spec.Model,
+		SystemPrompt:    agent.Spec.SystemPrompt,
+		BuiltinTools:    agent.Spec.BuiltinTools,
+		Temperature:     agent.Spec.Temperature,
+		MaxOutputTokens: agent.Spec.MaxOutputTokens,
+		MaxSteps:        agent.Spec.MaxSteps,
 	}
 
+	// Tools (toolRefs — loaded as MCP servers by Fantasy runtime)
+	for _, tr := range agent.Spec.ToolRefs {
+		path := fmt.Sprintf("%s/%s", MountTools, tr.Name)
+		config.Tools = append(config.Tools, ToolEntry{Name: tr.Name, Path: path})
+	}
+
+	// Providers
+	for _, p := range agent.Spec.Providers {
+		config.Providers = append(config.Providers, ProviderEntry{Name: p.Name})
+	}
+
+	// Fallback models
+	config.FallbackModels = agent.Spec.FallbackModels
+
+	// MCP servers
+	for i, ms := range agent.Spec.MCPServers {
+		port := GatewayBasePort + i
+		config.MCPServers = append(config.MCPServers, MCPEntry{
+			Name:        ms.Name,
+			Port:        port,
+			DirectTools: ms.DirectTools,
+		})
+	}
+
+	// Tool hooks
+	if agent.Spec.ToolHooks != nil {
+		config.ToolHooks = &ToolHooksEntry{
+			BlockedCommands: agent.Spec.ToolHooks.BlockedCommands,
+			AllowedPaths:    agent.Spec.ToolHooks.AllowedPaths,
+			AuditTools:      agent.Spec.ToolHooks.AuditTools,
+		}
+	}
+
+	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshal operator config: %w", err)
 	}
@@ -149,136 +144,7 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent) (*corev1.ConfigMap, error)
 }
 
 // ====================================================================
-// Pi config builder
-// ====================================================================
-
-func buildPiConfig(agent *agentsv1alpha1.Agent) ([]byte, error) {
-	pi := agent.Spec.Pi
-
-	config := PiExtensionConfig{
-		Runtime:      "pi",
-		PrimaryModel: agent.Spec.Model,
-		SystemPrompt: agent.Spec.SystemPrompt,
-		BuiltinTools: pi.BuiltinTools,
-	}
-
-	if pi.ThinkingLevel != "" {
-		config.ThinkingLevel = pi.ThinkingLevel
-	}
-
-	// Tools (shared toolRefs)
-	for _, tr := range agent.Spec.ToolRefs {
-		path := fmt.Sprintf("%s/%s", MountTools, tr.Name)
-		config.Tools = append(config.Tools, ToolEntry{Name: tr.Name, Path: path})
-	}
-
-	// Skills (Pi-specific)
-	for _, sk := range pi.Skills {
-		path := fmt.Sprintf("%s/%s", MountSkills, sk.Name)
-		config.Skills = append(config.Skills, SkillEntry{Name: sk.Name, Path: path})
-	}
-
-	// Providers
-	for _, p := range agent.Spec.Providers {
-		config.Providers = append(config.Providers, ProviderEntry{Name: p.Name})
-	}
-
-	// Fallback models
-	config.FallbackModels = agent.Spec.FallbackModels
-
-	// Compaction (Pi-specific, daemon only)
-	if pi.Compaction != nil {
-		enabled := true
-		if pi.Compaction.Enabled != nil {
-			enabled = *pi.Compaction.Enabled
-		}
-		strategy := "auto"
-		if pi.Compaction.Strategy != "" {
-			strategy = pi.Compaction.Strategy
-		}
-		config.Compaction = &CompactionEntry{
-			Enabled:  enabled,
-			Strategy: strategy,
-		}
-	}
-
-	// MCP servers
-	for i, ms := range agent.Spec.MCPServers {
-		port := GatewayBasePort + i
-		config.MCPServers = append(config.MCPServers, MCPEntry{
-			Name:        ms.Name,
-			Port:        port,
-			DirectTools: ms.DirectTools,
-		})
-	}
-
-	// Tool hooks
-	if agent.Spec.ToolHooks != nil {
-		config.ToolHooks = &ToolHooksEntry{
-			BlockedCommands: agent.Spec.ToolHooks.BlockedCommands,
-			AllowedPaths:    agent.Spec.ToolHooks.AllowedPaths,
-			AuditTools:      agent.Spec.ToolHooks.AuditTools,
-		}
-	}
-
-	return json.MarshalIndent(config, "", "  ")
-}
-
-// ====================================================================
-// Fantasy config builder
-// ====================================================================
-
-func buildFantasyConfig(agent *agentsv1alpha1.Agent) ([]byte, error) {
-	fantasy := agent.Spec.Fantasy
-
-	config := FantasyExtensionConfig{
-		Runtime:         "fantasy",
-		PrimaryModel:    agent.Spec.Model,
-		SystemPrompt:    agent.Spec.SystemPrompt,
-		BuiltinTools:    fantasy.BuiltinTools,
-		Temperature:     fantasy.Temperature,
-		MaxOutputTokens: fantasy.MaxOutputTokens,
-		MaxSteps:        fantasy.MaxSteps,
-	}
-
-	// Tools (shared toolRefs — loaded as MCP servers by Fantasy runtime)
-	for _, tr := range agent.Spec.ToolRefs {
-		path := fmt.Sprintf("%s/%s", MountTools, tr.Name)
-		config.Tools = append(config.Tools, ToolEntry{Name: tr.Name, Path: path})
-	}
-
-	// Providers
-	for _, p := range agent.Spec.Providers {
-		config.Providers = append(config.Providers, ProviderEntry{Name: p.Name})
-	}
-
-	// Fallback models
-	config.FallbackModels = agent.Spec.FallbackModels
-
-	// MCP servers
-	for i, ms := range agent.Spec.MCPServers {
-		port := GatewayBasePort + i
-		config.MCPServers = append(config.MCPServers, MCPEntry{
-			Name:        ms.Name,
-			Port:        port,
-			DirectTools: ms.DirectTools,
-		})
-	}
-
-	// Tool hooks
-	if agent.Spec.ToolHooks != nil {
-		config.ToolHooks = &ToolHooksEntry{
-			BlockedCommands: agent.Spec.ToolHooks.BlockedCommands,
-			AllowedPaths:    agent.Spec.ToolHooks.AllowedPaths,
-			AuditTools:      agent.Spec.ToolHooks.AuditTools,
-		}
-	}
-
-	return json.MarshalIndent(config, "", "  ")
-}
-
-// ====================================================================
-// Gateway & MCP ConfigMaps (shared across runtimes)
+// Gateway & MCP ConfigMaps
 // ====================================================================
 
 // BuildGatewayConfigMap generates the MCP gateway permission rules ConfigMap.

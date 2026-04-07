@@ -34,15 +34,43 @@ type Session struct {
 	CreatedAt    time.Time         `json:"created_at"`
 	UpdatedAt    time.Time         `json:"updated_at"`
 	MessageCount int               `json:"message_count"`
+	// Usage from the last agent call (persisted for the console to display on reload)
+	TotalUsage *sessionUsage `json:"total_usage,omitempty"`
+	Model      string        `json:"model,omitempty"`
+	// Per-turn usage: one entry per agent call (user prompt -> agent response).
+	// This allows the console to display token counts on each assistant message after reload.
+	TurnUsages []turnUsage `json:"turn_usages,omitempty"`
+}
+
+// sessionUsage stores token counts from the last agent call.
+type sessionUsage struct {
+	InputTokens         int64 `json:"input_tokens"`
+	OutputTokens        int64 `json:"output_tokens"`
+	TotalTokens         int64 `json:"total_tokens"`
+	ReasoningTokens     int64 `json:"reasoning_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+	CacheReadTokens     int64 `json:"cache_read_tokens"`
+}
+
+// turnUsage stores token counts for a single agent call (one user prompt -> one agent response).
+// StepUsages contains per-step breakdown so each assistant message can show its own token count.
+type turnUsage struct {
+	Usage      sessionUsage   `json:"usage"`
+	Model      string         `json:"model"`
+	Steps      int            `json:"steps"`
+	StepUsages []sessionUsage `json:"step_usages,omitempty"`
 }
 
 // SessionInfo is the API-facing representation of a session (times as RFC3339).
 type SessionInfo struct {
-	ID           string `json:"id"`
-	Title        string `json:"title"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
-	MessageCount int    `json:"message_count"`
+	ID           string        `json:"id"`
+	Title        string        `json:"title"`
+	CreatedAt    string        `json:"created_at"`
+	UpdatedAt    string        `json:"updated_at"`
+	MessageCount int           `json:"message_count"`
+	TotalUsage   *sessionUsage `json:"total_usage,omitempty"`
+	Model        string        `json:"model,omitempty"`
+	TurnUsages   []turnUsage   `json:"turn_usages,omitempty"`
 }
 
 // Info returns an API-safe representation with RFC3339 timestamps.
@@ -53,6 +81,9 @@ func (s *Session) Info() SessionInfo {
 		CreatedAt:    s.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:    s.UpdatedAt.Format(time.RFC3339),
 		MessageCount: s.MessageCount,
+		TotalUsage:   s.TotalUsage,
+		Model:        s.Model,
+		TurnUsages:   s.TurnUsages,
 	}
 }
 
@@ -67,6 +98,9 @@ type serializableSession struct {
 	CreatedAt    time.Time             `json:"created_at"`
 	UpdatedAt    time.Time             `json:"updated_at"`
 	MessageCount int                   `json:"message_count"`
+	TotalUsage   *sessionUsage         `json:"total_usage,omitempty"`
+	Model        string                `json:"model,omitempty"`
+	TurnUsages   []turnUsage           `json:"turn_usages,omitempty"`
 }
 
 type serializableMessage struct {
@@ -270,6 +304,9 @@ func (ss *SessionStore) loadFromDisk() {
 			CreatedAt:    stored.CreatedAt,
 			UpdatedAt:    stored.UpdatedAt,
 			MessageCount: stored.MessageCount,
+			TotalUsage:   stored.TotalUsage,
+			Model:        stored.Model,
+			TurnUsages:   stored.TurnUsages,
 		}
 		for _, sm := range stored.Messages {
 			s.Messages = append(s.Messages, deserializeMessage(sm))
@@ -296,6 +333,9 @@ func (ss *SessionStore) persist(s *Session) {
 		CreatedAt:    s.CreatedAt,
 		UpdatedAt:    s.UpdatedAt,
 		MessageCount: s.MessageCount,
+		TotalUsage:   s.TotalUsage,
+		Model:        s.Model,
+		TurnUsages:   s.TurnUsages,
 	}
 	for _, msg := range s.Messages {
 		stored.Messages = append(stored.Messages, serializeMessage(msg))
@@ -434,4 +474,45 @@ func (ss *SessionStore) UpdateTitle(id string, title string) {
 	s.Title = title
 	s.UpdatedAt = time.Now()
 	ss.persist(s)
+}
+
+// UpdateUsage stores the total token usage and model for a session,
+// and appends a per-turn usage entry (with per-step breakdown) so each
+// assistant message can show its own token count after a browser refresh.
+// Called after agent_finish so the data survives a browser refresh.
+func (ss *SessionStore) UpdateUsage(id string, totalUsage fantasy.Usage, model string, stepResults []fantasy.StepResult) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	s, ok := ss.sessions[id]
+	if !ok {
+		return
+	}
+	u := usageToSession(totalUsage)
+	s.TotalUsage = &u
+	s.Model = model
+
+	// Build per-step usage breakdown
+	stepUsages := make([]sessionUsage, len(stepResults))
+	for i, sr := range stepResults {
+		stepUsages[i] = usageToSession(sr.Usage)
+	}
+
+	s.TurnUsages = append(s.TurnUsages, turnUsage{
+		Usage:      u,
+		Model:      model,
+		Steps:      len(stepResults),
+		StepUsages: stepUsages,
+	})
+	ss.persist(s)
+}
+
+func usageToSession(u fantasy.Usage) sessionUsage {
+	return sessionUsage{
+		InputTokens:         u.InputTokens,
+		OutputTokens:        u.OutputTokens,
+		TotalTokens:         u.TotalTokens,
+		ReasoningTokens:     u.ReasoningTokens,
+		CacheCreationTokens: u.CacheCreationTokens,
+		CacheReadTokens:     u.CacheReadTokens,
+	}
 }

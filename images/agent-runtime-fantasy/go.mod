@@ -1,4 +1,4 @@
-module github.com/samyn92/agenticops-core/images/agent-runtime-fantasy
+module github.com/samyn92/agentops-runtime-fantasy
 
 go 1.26.1
 

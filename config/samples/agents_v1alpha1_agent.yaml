@@ -1,4 +1,4 @@
-# Default sample: Pi runtime daemon agent
+# Default sample: Fantasy runtime daemon agent
 apiVersion: agents.agenticops.io/v1alpha1
 kind: Agent
 metadata:
@@ -10,17 +10,15 @@ spec:
   mode: daemon
   model: anthropic/claude-sonnet-4-20250514
 
-  # Pi runtime
-  pi:
-    builtinTools:
-      - read
-      - grep
-      - find
-      - ls
-    thinkingLevel: medium
-    compaction:
-      enabled: true
-      strategy: auto
+  builtinTools:
+    - bash
+    - read
+    - edit
+    - write
+    - grep
+    - glob
+  temperature: 0.3
+  maxSteps: 50
 
   providers:
     - name: anthropic

@@ -1,4 +1,4 @@
-# Task mode: Pi runtime with OCI/configmap tools, skills, extensions, context, and scheduling
+# Example: Task mode agent with OCI tools, context, and scheduling
 apiVersion: agents.agenticops.io/v1alpha1
 kind: Agent
 metadata:
@@ -10,36 +10,9 @@ spec:
   mode: task
   model: openai/gpt-4.1-mini
 
-  # Pi runtime with full extension support
-  pi:
-    image: ghcr.io/samyn92/agent-runtime-pi:latest
-    imagePullPolicy: IfNotPresent
-    builtinTools: []
-    skills:
-      - name: incident-playbook
-        ociRef:
-          ref: ghcr.io/samyn92/pi-skill-incident-playbook:0.1.0
-      - name: review-style-guide
-        configMapRef:
-          name: agent-skills
-          key: review-style-guide.md
-      - name: escalation-template
-        content: |
-          # Escalation template
-          - Summary
-          - Impact
-          - Next steps
-    extensions:
-      - name: jira-extension
-        ociRef:
-          ref: ghcr.io/samyn92/pi-ext-jira:0.1.0
-        env:
-          JIRA_BASE_URL: https://jira.example.com
-        secrets:
-          - name: JIRA_TOKEN
-            secretRef:
-              name: jira-credentials
-              key: token
+  image: ghcr.io/samyn92/agent-runtime-fantasy:latest
+  imagePullPolicy: IfNotPresent
+  builtinTools: []
 
   providers:
     - name: openai
@@ -55,7 +28,7 @@ spec:
         name: agent-context
         key: AGENTS.md
 
-  # Runtime-agnostic OCI tools (MCP servers)
+  # OCI tools (MCP servers)
   toolRefs:
     - name: jira_tools
       ociRef:
