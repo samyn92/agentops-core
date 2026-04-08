@@ -1,27 +1,34 @@
 # agentops-core
 
-Kubernetes operator for running AI agents as native Kubernetes workloads. The operator manages the full lifecycle of agents — deployments, jobs, storage, MCP server bindings, channel bridges, and concurrency control. Agents run the [Fantasy](https://github.com/charmbracelet/fantasy) SDK (Go) inside containers, with the runtime maintained in the separate [`agentops-runtime-fantasy`](https://github.com/samyn92/agentops-runtime-fantasy) repo.
+Kubernetes operator for deploying AI agents as native workloads. Define agents, MCP servers, channels, and resources as Custom Resources — the operator handles deployments, jobs, storage, networking, MCP gateway sidecars, channel bridges, concurrency control, and memory integration. Agents run the [Charm Fantasy SDK](https://github.com/charmbracelet/fantasy) via the standalone [agentops-runtime](https://github.com/samyn92/agentops-runtime).
 
 ## Architecture
 
+<picture>
+  <img alt="agentops-core architecture" src="docs/architecture.svg" width="100%">
+</picture>
+
+<details>
+<summary>Text version</summary>
+
 ```
 EXTERNAL                       OPERATOR (reconciles)                     KUBERNETES
-                                                                        
-  Telegram ─┐                 ┌──────────────────┐                       
-  Slack    ──┤  Channel CRs   │  Channel Bridge   │  HTTP POST /prompt   
+
+  Telegram ─┐                 ┌──────────────────┐
+  Slack    ──┤  Channel CRs   │  Channel Bridge   │  HTTP POST /prompt
   Discord  ──┤──────────────► │  (Deployment)     │─────────────────────► Agent (daemon)
              │  chat types    │                   │                       Deployment + PVC + Service
-             │  forward msgs  └──────────────────┘                       Fantasy SDK + HTTP server (:4096)
-             │  directly                                                  ├── /prompt
-  GitLab  ───┤                                                            ├── /prompt/stream
-  GitHub  ───┤  event types   ┌──────────────────┐                       ├── /steer, /followup, /abort
+             │  forward msgs  └──────────────────┘                       Runtime + HTTP (:4096)
+             │  directly                                                  ├── /prompt/stream
+  GitLab  ───┤                                                            ├── /steer, /abort
+  GitHub  ───┤  event types   ┌──────────────────┐                       └── /permission, /question
   Webhook ───┘──────────────► │  Channel Bridge   │─── creates ──► AgentRun CR
                               │  (renders prompt  │                  │
                               │   from template)  │                  │
                               └──────────────────┘                  │
                                                                     │
   run_agent tool ──────────────────── creates ─────────────────► AgentRun CR
-  (daemon agent calling another)                                    │
+  (agent calling another agent)                                     │
                                                                     │
   Cron Schedule ───────────────────── creates ─────────────────► AgentRun CR
                                                                     │
@@ -32,19 +39,29 @@ EXTERNAL                       OPERATOR (reconciles)                     KUBERNE
                                                         │ task agent?      │
                                                         │   → create Job   │──► Agent (task)
                                                         │                  │    Job (one-shot)
-                                                        │ daemon agent?    │    Fantasy SDK, exits
+                                                        │ daemon agent?    │    exits on completion
                                                         │   → HTTP POST    │──► Agent (daemon)
                                                         │     /prompt      │    (already running)
                                                         └──────────────────┘
 
   MCPServer CRs                ┌──────────────────┐
-  (deploy mode)  ────────────► │  MCP Deployment   │  :8080 (mcp-gateway spawn mode)
+  (deploy mode)  ────────────► │  MCP Deployment   │  (mcp-gateway spawn mode)
                                │  + Service        │◄──── SSE ──── gw sidecar in Agent pod
   (external mode) ─────────────│  health probe     │               (proxy mode, deny/allow rules)
                                └──────────────────┘
-```
 
-### Data flow
+  Engram (memory)              ┌──────────────────┐
+  Deployed separately          │  PVC + Deployment │  :7437 (HTTP REST)
+  Referenced via spec.memory   │  + Service        │◄──── HTTP ──── Agent pods
+                               └──────────────────┘               (EngramClient in runtime)
+
+  Console ─────────────────────────── HTTP :4096 ─────────────────► Agent (daemon)
+  (Go BFF + SolidJS PWA)                                            /prompt/stream, /steer, /abort
+  agent-system namespace                                            /permission, /question
+```
+</details>
+
+### Data Flow
 
 | Source | Target Agent Mode | Path |
 |--------|:-----------------:|------|
@@ -55,72 +72,145 @@ EXTERNAL                       OPERATOR (reconciles)                     KUBERNE
 
 ## Custom Resource Definitions
 
+Five CRDs in API group `agents.agentops.io/v1alpha1`:
+
 | CRD | Short Name | Description |
 |-----|-----------|-------------|
-| `Agent` | `ag` | Defines an AI agent (model, tools, MCP bindings, mode) |
-| `Channel` | `ch` | Bridges external platforms (Telegram, Slack, GitLab, GitHub, etc.) to agents |
-| `AgentRun` | `ar` | Tracks a single prompt execution against an agent |
-| `MCPServer` | `mcp` | Shared MCP infrastructure (deployed or external) |
+| `Agent` | `ag` | AI agent — model, tools, memory, MCP bindings, mode |
+| `AgentRun` | `ar` | Single prompt execution against an agent |
+| `Channel` | `ch` | Bridge from external platforms to agents |
+| `MCPServer` | `mcp` | Shared MCP server infrastructure |
+| `AgentResource` | `ares` | External resource catalog (repos, S3, docs, MCP endpoints) |
 
-### Agent modes
+### Agent
 
-- **`daemon`** — long-running Deployment + PVC + Service. Receives prompts via HTTP (`/prompt`, `/prompt/stream`, `/steer`, `/followup`, `/abort`). Supports session compaction.
+Two modes:
+
+- **`daemon`** — long-running Deployment + PVC + Service. Receives prompts via HTTP, maintains conversation state in working memory, persists knowledge to Engram.
 - **`task`** — one-shot Job per AgentRun. Prompt in, structured result out, container exits.
 
-### Agent spec highlights
+Spec highlights:
 
 | Field Group | Key Fields |
 |-------------|------------|
 | Runtime | `image`, `builtinTools`, `temperature`, `maxOutputTokens`, `maxSteps` |
 | Model | `model`, `primaryProvider`, `titleModel`, `providers`, `fallbackModels` |
 | Identity | `systemPrompt`, `contextFiles` |
-| Tools | `toolRefs` (OCI / ConfigMap / inline MCP), `permissionTools`, `enableQuestionTool` |
-| MCP Servers | `mcpServers` (shared MCPServer bindings with per-agent permissions) |
+| Tools | `toolRefs` (OCI tools), `permissionTools`, `enableQuestionTool` |
+| MCP Servers | `mcpServers` (bindings with per-agent deny/allow permissions) |
+| Memory | `memory` (Engram integration: serverRef, project, contextLimit, windowSize, autoSummarize) |
 | Tool Hooks | `toolHooks` (blocked commands, allowed paths, audit tools) |
+| Resources | `resourceBindings` (bind AgentResource CRs for context injection) |
 | Schedule | `schedule` (cron), `schedulePrompt` |
-| Concurrency | `concurrency.maxRuns`, `concurrency.policy` |
+| Concurrency | `concurrency.maxRuns`, `concurrency.policy` (queue/reject/replace) |
 | Storage | `storage` (PVC for daemon agents) |
 | Infrastructure | `resources`, `serviceAccountName`, `timeout`, `networkPolicy` |
+| Skills | `skillRefs` (OCI-packaged markdown instructions, planned) |
+
+### AgentRun
+
+Tracks a single execution. Created by channels, cron schedules, or the `run_agent` orchestration tool. Fields: `agentRef`, `prompt`, `source`, `sourceRef`. Status includes `phase`, `output`, `toolCalls`, `model`, `usage`.
+
+Concurrency is enforced per-agent: `queue` (FIFO wait), `reject` (fail immediately), `replace` (cancel previous run).
+
+### Channel
+
+Bridges external platforms to agents. Two bridge types:
+
+- **Chat channels** (Telegram, Slack, Discord) — forward messages directly as HTTP POST to daemon agents
+- **Event channels** (GitLab, GitHub, Webhook) — render prompts from templates, create AgentRun CRs
+
+Deployed as Deployments with optional Ingress + TLS (cert-manager).
+
+### MCPServer
+
+Two deployment modes:
+
+- **`deploy`** — operator creates a Deployment + Service running the specified image behind `mcp-gateway` in spawn mode (stdio -> HTTP+SSE)
+- **`external`** — validates an externally-managed endpoint URL
+
+Agent pods include MCP gateway sidecars in proxy mode that enforce per-agent deny/allow permission rules on `tools/call` requests.
+
+### AgentResource
+
+Catalog of external resources agents can bind to. Supports:
+
+| Kind | Config |
+|------|--------|
+| `github-repo` | owner, repo, defaultBranch, apiURL |
+| `github-org` | org, repoFilter, apiURL |
+| `gitlab-project` | baseURL, project, defaultBranch |
+| `gitlab-group` | baseURL, group, projects filter |
+| `git-repo` | url, branch |
+| `mcp-endpoint` | url, transport, headers |
+| `s3-bucket` | bucket, region, endpoint, prefix |
+| `documentation` | urls |
+
+Resources are bound to agents via `spec.resourceBindings` with optional `readOnly` and `autoContext` flags. The console uses these bindings to provide file/commit/branch/issue browsing and per-turn context injection.
+
+## Memory
+
+The operator generates memory configuration for agents that specify `spec.memory`. The `resolveMemoryServerURL` function resolves the Engram server URL by:
+
+1. Looking up a matching MCPServer CR by `serverRef` name
+2. Falling back to in-cluster service DNS (`http://<serverRef>.<namespace>.svc:7437`)
+
+This configuration is injected into `/etc/operator/config.json` and consumed by the runtime's EngramClient.
+
+```yaml
+spec:
+  memory:
+    serverRef: engram
+    project: my-agent        # defaults to agent name
+    contextLimit: 5
+    windowSize: 20
+    autoSummarize: true
+```
+
+## Webhooks
+
+Four validating webhooks (non-mutating, `failurePolicy: Fail`):
+
+- **Agent** — validates mode, model format, provider references, tool/MCP/resource binding names, concurrency policy, cron syntax
+- **Channel** — validates platform type, chat vs event mode, required fields per platform, template syntax
+- **MCPServer** — validates deploy vs external mode, required fields, port range
+- **AgentResource** — validates kind, required kind-specific fields, URL formats
+
+## MCP Gateway
+
+Custom Go binary in `images/mcp-gateway/` with two modes:
+
+- **Spawn mode** — wraps an MCP server subprocess (stdio JSON-RPC) behind HTTP+SSE. Used by MCPServer Deployments.
+- **Proxy mode** — sidecar in agent pods that forwards MCP requests to the upstream server while enforcing per-agent deny/allow permission rules on `tools/call` requests.
 
 ## Project Structure
 
 ```
 agentops-core/
-  api/v1alpha1/              # CRD types (Agent, Channel, AgentRun, MCPServer) + webhooks
-  cmd/main.go                # Operator entrypoint (--enable-webhooks flag)
+  api/v1alpha1/              # CRD types + webhooks
+    agent_types.go           #   Agent, AgentRun
+    channel_types.go         #   Channel
+    mcpserver_types.go       #   MCPServer
+    agentresource_types.go   #   AgentResource
+    shared_types.go          #   MemorySpec, common types
+    *_webhook.go             #   Validating webhooks
+  cmd/main.go                # Operator entrypoint
   internal/
-    controller/              # 4 reconcilers (agent, agentrun, channel, mcpserver)
-    resources/               # Kubernetes resource builders (deployments, jobs, PVCs, etc.)
+    controller/              # 5 reconcilers
+    resources/               # K8s resource builders + tests
   images/
-    mcp-gateway/             # MCP protocol gateway (spawn + proxy modes)
+    mcp-gateway/             # MCP gateway binary (spawn + proxy)
   config/
-    crd/bases/               # Generated CRD YAMLs
+    crd/bases/               # Generated CRD manifests
     rbac/                    # Generated RBAC
-    manager/                 # Operator Deployment manifest
+    manager/                 # Operator Deployment
     webhook/                 # Webhook configuration
-    samples/                 # Example CRs
+    samples/                 # 17 example CRs
   hack/
     dev/                     # Dev pod manifest + init script
-  Dockerfile                 # Operator image
+  Dockerfile                 # Multi-stage, distroless
   Makefile                   # Build, generate, deploy targets
 ```
-
-## Related Repos
-
-| Repo | Purpose |
-|------|---------|
-| [`agentops-runtime-fantasy`](https://github.com/samyn92/agentops-runtime-fantasy) | Fantasy agent runtime (Go, Charm Fantasy SDK) |
-| `agent-channels` | Channel bridge images (gitlab, webhook, etc.) |
-| `agent-tools` | OCI tool/agent packaging CLI + tool packages |
-| `agent-console` | Web console |
-| `agent-factory` | Helm chart (future) |
-
-## Prerequisites
-
-- Go 1.26+
-- Docker
-- kubectl
-- Access to a Kubernetes cluster (v1.28+)
 
 ## Quick Start
 
@@ -136,7 +226,7 @@ make install
 make run
 ```
 
-Webhooks are disabled by default. To enable them (requires cert-manager or manual TLS):
+With webhooks (requires cert-manager):
 
 ```sh
 make run ARGS="--enable-webhooks"
@@ -145,8 +235,8 @@ make run ARGS="--enable-webhooks"
 ### Deploy to a cluster
 
 ```sh
-make docker-build docker-push IMG=ghcr.io/samyn92/agentops-core:latest
-make deploy IMG=ghcr.io/samyn92/agentops-core:latest
+make docker-build docker-push IMG=ghcr.io/samyn92/agentops-operator:latest
+make deploy IMG=ghcr.io/samyn92/agentops-operator:latest
 ```
 
 ### Create a minimal agent
@@ -166,10 +256,12 @@ spec:
         name: llm-api-keys
         key: ANTHROPIC_API_KEY
   builtinTools:
-    - read
     - bash
+    - read
     - edit
     - write
+  memory:
+    serverRef: engram
 ```
 
 ### Trigger a run
@@ -194,15 +286,12 @@ kubectl apply -k config/samples/
 
 ## Development
 
-### Using the dev pod (recommended)
+### Dev pod (recommended)
 
-The dev pod runs in-cluster on k3s with your source code mounted via hostPath. See [`hack/dev/dev-pod.yaml`](hack/dev/dev-pod.yaml) for the full setup.
+The dev pod runs in-cluster with source code mounted via hostPath:
 
 ```sh
-# Deploy the dev pod
 kubectl apply -f hack/dev/dev-pod.yaml
-
-# Shell in
 kubectl exec -it -n agent-system deploy/agentops-dev -- bash
 
 # Inside the pod:
@@ -212,7 +301,7 @@ make install        # apply CRDs to cluster
 make run            # run operator
 ```
 
-### Local development
+### Local
 
 ```sh
 make generate       # Generate DeepCopy methods
@@ -226,18 +315,18 @@ make lint           # Run golangci-lint
 
 | Image | Source | Purpose |
 |-------|--------|---------|
-| `ghcr.io/samyn92/agentops-operator` | `Dockerfile` (repo root) | Kubernetes operator |
-| `ghcr.io/samyn92/agent-runtime-fantasy` | [`agentops-runtime-fantasy`](https://github.com/samyn92/agentops-runtime-fantasy) repo | Fantasy SDK agent runtime |
-| `ghcr.io/samyn92/mcp-gateway` | `images/mcp-gateway/` | MCP protocol gateway (spawn + proxy modes) |
+| `ghcr.io/samyn92/agentops-operator` | `Dockerfile` | Kubernetes operator |
+| `ghcr.io/samyn92/agentops-runtime` | [agentops-runtime](https://github.com/samyn92/agentops-runtime) | Agent runtime |
+| `ghcr.io/samyn92/mcp-gateway` | `images/mcp-gateway/` | MCP protocol gateway |
+| `ghcr.io/samyn92/engram` | [engram](https://github.com/samyn92/engram) | Shared memory server |
 
-## Uninstall
+## Related
 
-```sh
-kubectl delete -k config/samples/
-make undeploy
-make uninstall
-```
+- [agentops-runtime](https://github.com/samyn92/agentops-runtime) — Agent runtime (Fantasy SDK + Engram memory)
+- [agentops-console](https://github.com/samyn92/agentops-console) — Web console (Go BFF + SolidJS PWA)
+- [Engram](https://github.com/samyn92/engram) — Shared memory server (fork)
+- [Charm Fantasy SDK](https://github.com/charmbracelet/fantasy) — AI agent framework
 
 ## License
 
-Copyright 2026. Licensed under the Apache License, Version 2.0.
+Apache 2.0
