@@ -48,6 +48,7 @@ type AgentReconciler struct {
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agents/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agents/finalizers,verbs=update
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=mcpservers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=agents.agentops.io,resources=agentresources,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
@@ -104,6 +105,40 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		})
 	}
 
+	// Resolve referenced AgentResources
+	agentResources, err := r.resolveAgentResources(ctx, agent)
+	if err != nil {
+		r.setAgentFailedStatus(agent, agentsv1alpha1.AgentPhaseFailed, err.Error())
+		if patchErr := patchStatus(ctx, r.Client, agent, statusPatch); patchErr != nil {
+			return ctrl.Result{}, patchErr
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Validate AgentResources are ready
+	if err := r.validateAgentResourcesReady(agentResources); err != nil {
+		meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
+			Type:    agentsv1alpha1.AgentConditionResourcesReady,
+			Status:  metav1.ConditionFalse,
+			Reason:  "ResourceNotReady",
+			Message: err.Error(),
+		})
+		if patchErr := patchStatus(ctx, r.Client, agent, statusPatch); patchErr != nil {
+			return ctrl.Result{}, patchErr
+		}
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	}
+
+	// Set ResourcesReady condition
+	if len(agent.Spec.ResourceBindings) > 0 {
+		meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
+			Type:    agentsv1alpha1.AgentConditionResourcesReady,
+			Status:  metav1.ConditionTrue,
+			Reason:  "AllReady",
+			Message: fmt.Sprintf("%d resources bound", len(agentResources)),
+		})
+	}
+
 	// Set ProvidersReady condition
 	meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
 		Type:    agentsv1alpha1.AgentConditionProvidersReady,
@@ -118,9 +153,9 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	switch agent.Spec.Mode {
 	case agentsv1alpha1.AgentModeDaemon:
-		result, reconcileErr = r.reconcileDaemon(ctx, agent, mcpServers)
+		result, reconcileErr = r.reconcileDaemon(ctx, agent, mcpServers, agentResources)
 	case agentsv1alpha1.AgentModeTask:
-		result, reconcileErr = r.reconcileTask(ctx, agent)
+		result, reconcileErr = r.reconcileTask(ctx, agent, mcpServers, agentResources)
 	default:
 		return ctrl.Result{}, fmt.Errorf("unknown agent mode: %s", agent.Spec.Mode)
 	}
@@ -140,7 +175,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 // reconcileDaemon handles daemon mode: PVC -> ConfigMaps -> Deployment -> Service -> NetworkPolicy -> status.
 //
 //nolint:unparam // Result is always nil for now but will be used for requeue logic.
-func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1alpha1.Agent, mcpServers []agentsv1alpha1.MCPServer) (ctrl.Result, error) {
+func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1alpha1.Agent, mcpServers []agentsv1alpha1.MCPServer, agentResources []agentsv1alpha1.AgentResource) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	// 1. PVC
@@ -153,7 +188,7 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 	}
 
 	// 2. Operator extension ConfigMap
-	configMap, err := resources.BuildAgentConfigMap(agent)
+	configMap, err := resources.BuildAgentConfigMap(agent, agentResources, mcpServers)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -254,11 +289,11 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 // reconcileTask handles task mode: ConfigMaps -> status (Ready).
 //
 //nolint:unparam // Result is always nil for now but will be used for requeue logic.
-func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alpha1.Agent) (ctrl.Result, error) {
+func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alpha1.Agent, mcpServers []agentsv1alpha1.MCPServer, agentResources []agentsv1alpha1.AgentResource) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	// 1. Operator extension ConfigMap
-	configMap, err := resources.BuildAgentConfigMap(agent)
+	configMap, err := resources.BuildAgentConfigMap(agent, agentResources, mcpServers)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -324,11 +359,34 @@ func (r *AgentReconciler) resolveMCPServers(ctx context.Context, agent *agentsv1
 	return servers, nil
 }
 
+// resolveAgentResources fetches all AgentResource CRs referenced by the agent.
+func (r *AgentReconciler) resolveAgentResources(ctx context.Context, agent *agentsv1alpha1.Agent) ([]agentsv1alpha1.AgentResource, error) {
+	resources := make([]agentsv1alpha1.AgentResource, 0, len(agent.Spec.ResourceBindings))
+	for _, binding := range agent.Spec.ResourceBindings {
+		res := &agentsv1alpha1.AgentResource{}
+		if err := r.Get(ctx, types.NamespacedName{Name: binding.Name, Namespace: agent.Namespace}, res); err != nil {
+			return nil, fmt.Errorf("AgentResource %q not found: %w", binding.Name, err)
+		}
+		resources = append(resources, *res)
+	}
+	return resources, nil
+}
+
 // validateMCPServersReady checks all referenced MCPServers are in Ready phase.
 func (r *AgentReconciler) validateMCPServersReady(servers []agentsv1alpha1.MCPServer) error {
 	for _, mcp := range servers {
 		if mcp.Status.Phase != agentsv1alpha1.MCPServerPhaseReady {
 			return fmt.Errorf("MCPServer %q is not Ready (phase: %s)", mcp.Name, mcp.Status.Phase)
+		}
+	}
+	return nil
+}
+
+// validateAgentResourcesReady checks all referenced AgentResources are in Ready phase.
+func (r *AgentReconciler) validateAgentResourcesReady(resources []agentsv1alpha1.AgentResource) error {
+	for _, res := range resources {
+		if res.Status.Phase != agentsv1alpha1.AgentResourcePhaseReady {
+			return fmt.Errorf("AgentResource %q is not Ready (phase: %s)", res.Name, res.Status.Phase)
 		}
 	}
 	return nil

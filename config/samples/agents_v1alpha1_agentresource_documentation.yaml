@@ -1,0 +1,14 @@
+apiVersion: agents.agentops.io/v1alpha1
+kind: AgentResource
+metadata:
+  name: upstream-docs
+  namespace: agents
+spec:
+  kind: documentation
+  displayName: "Upstream Documentation"
+  description: "Reference documentation for tools and frameworks"
+  documentation:
+    urls:
+      - https://kubernetes.io/docs/
+      - https://fluxcd.io/docs/
+      - https://book.kubebuilder.io/

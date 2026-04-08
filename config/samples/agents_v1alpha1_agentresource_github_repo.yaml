@@ -1,0 +1,16 @@
+apiVersion: agents.agentops.io/v1alpha1
+kind: AgentResource
+metadata:
+  name: agentops-core
+  namespace: agents
+spec:
+  kind: github-repo
+  displayName: "AgentOps Core"
+  description: "Kubernetes operator for deploying AI agents"
+  credentials:
+    name: github-tokens
+    key: GITHUB_TOKEN
+  github:
+    owner: samyn92
+    repo: agentops-core
+    defaultBranch: main

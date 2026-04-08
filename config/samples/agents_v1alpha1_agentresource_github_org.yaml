@@ -1,0 +1,17 @@
+apiVersion: agents.agentops.io/v1alpha1
+kind: AgentResource
+metadata:
+  name: samyn92-github
+  namespace: agents
+spec:
+  kind: github-org
+  displayName: "samyn92 GitHub"
+  description: "All repositories in the samyn92 GitHub org"
+  credentials:
+    name: github-tokens
+    key: GITHUB_TOKEN
+  githubOrg:
+    org: samyn92
+    repoFilter:
+      - "agentops-*"
+      - "agent-*"

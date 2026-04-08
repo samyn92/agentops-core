@@ -183,6 +183,44 @@ spec:
                   - name
                   type: object
                 type: array
+              memory:
+                description: |-
+                  Memory configuration for the Engram shared memory system.
+                  When set, the runtime injects recent context and enables
+                  memory MCP tools (mem_save, mem_search, etc.).
+                properties:
+                  autoSummarize:
+                    default: true
+                    description: Enable auto-summarization of sessions at end.
+                    type: boolean
+                  contextLimit:
+                    default: 5
+                    description: Number of recent context entries injected per turn.
+                    maximum: 50
+                    minimum: 0
+                    type: integer
+                  project:
+                    description: |-
+                      Project name used to scope memories in Engram.
+                      Defaults to the Agent CR name if unset.
+                    type: string
+                  serverRef:
+                    description: |-
+                      Name of the MCPServer CR providing Engram (e.g. "engram").
+                      The runtime connects to Engram's REST API via the MCPServer's
+                      service URL.
+                    minLength: 1
+                    type: string
+                  windowSize:
+                    default: 20
+                    description: Sliding window size for working memory (recent messages
+                      kept in-memory).
+                    maximum: 200
+                    minimum: 2
+                    type: integer
+                required:
+                - serverRef
+                type: object
               mode:
                 description: 'Mode: daemon (Deployment+PVC+Service) or task (Job template).'
                 enum:
@@ -240,6 +278,31 @@ spec:
                   - name
                   type: object
                 minItems: 1
+                type: array
+              resourceBindings:
+                description: |-
+                  External resources (repos, groups, MCP endpoints, etc.) bound to this agent.
+                  Users can select bound resources in the console UI to scope prompts.
+                items:
+                  description: AgentResourceBinding references an AgentResource CR
+                    from an Agent.
+                  properties:
+                    autoContext:
+                      description: |-
+                        Automatically inject this resource context into every prompt
+                        without requiring manual selection in the UI.
+                      type: boolean
+                    name:
+                      description: Name of the AgentResource CR to bind.
+                      minLength: 1
+                      type: string
+                    readOnly:
+                      description: Mark the resource as read-only for the agent (advisory,
+                        enforced by runtime).
+                      type: boolean
+                  required:
+                  - name
+                  type: object
                 type: array
               resources:
                 description: Compute resources for the agent container.
@@ -336,6 +399,72 @@ spec:
               serviceAccountName:
                 description: ServiceAccount for the agent pod.
                 type: string
+              skillRefs:
+                description: |-
+                  Skill packages providing domain-specific instructions injected
+                  into the system prompt. Each ref is an OCI artifact, ConfigMap,
+                  or inline markdown.
+                items:
+                  description: |-
+                    ResourceRef references a resource from OCI, ConfigMap, or inline content.
+                    Exactly one of ociRef, configMapRef, or content must be set.
+                  properties:
+                    configMapRef:
+                      description: ConfigMap reference (name + key).
+                      properties:
+                        key:
+                          description: Key within the Secret.
+                          type: string
+                        name:
+                          description: Name of the Secret.
+                          type: string
+                      required:
+                      - key
+                      - name
+                      type: object
+                    content:
+                      description: Inline content (< 4KB, for prototyping).
+                      type: string
+                    name:
+                      description: Logical name for this resource.
+                      type: string
+                    ociRef:
+                      description: OCI artifact reference.
+                      properties:
+                        digest:
+                          description: Optional digest for pinning (e.g. sha256:abc...).
+                          type: string
+                        pullPolicy:
+                          description: 'Pull policy: Always, IfNotPresent, Never.
+                            Defaults based on tag.'
+                          enum:
+                          - Always
+                          - IfNotPresent
+                          - Never
+                          type: string
+                        pullSecret:
+                          description: Optional pull secret for private registries.
+                          properties:
+                            key:
+                              description: Key within the Secret.
+                              type: string
+                            name:
+                              description: Name of the Secret.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        ref:
+                          description: Full OCI reference (e.g. ghcr.io/org/tool:1.0.0).
+                          type: string
+                      required:
+                      - ref
+                      type: object
+                  required:
+                  - name
+                  type: object
+                type: array
               storage:
                 description: Persistent storage for daemon agents (PVC, RWO).
                 properties:

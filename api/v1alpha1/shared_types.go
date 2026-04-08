@@ -274,6 +274,65 @@ type IngressTLS struct {
 }
 
 // -------------------------------------------------------------------
+// Agent resource bindings
+// -------------------------------------------------------------------
+
+// AgentResourceBinding references an AgentResource CR from an Agent.
+type AgentResourceBinding struct {
+	// Name of the AgentResource CR to bind.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// Mark the resource as read-only for the agent (advisory, enforced by runtime).
+	// +optional
+	ReadOnly bool `json:"readOnly,omitempty"`
+
+	// Automatically inject this resource context into every prompt
+	// without requiring manual selection in the UI.
+	// +optional
+	AutoContext bool `json:"autoContext,omitempty"`
+}
+
+// -------------------------------------------------------------------
+// Memory (Engram)
+// -------------------------------------------------------------------
+
+// MemorySpec configures the Engram shared memory system for an agent.
+type MemorySpec struct {
+	// Name of the MCPServer CR providing Engram (e.g. "engram").
+	// The runtime connects to Engram's REST API via the MCPServer's
+	// service URL.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ServerRef string `json:"serverRef"`
+
+	// Project name used to scope memories in Engram.
+	// Defaults to the Agent CR name if unset.
+	// +optional
+	Project string `json:"project,omitempty"`
+
+	// Number of recent context entries injected per turn.
+	// +optional
+	// +kubebuilder:default=5
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=50
+	ContextLimit int `json:"contextLimit,omitempty"`
+
+	// Sliding window size for working memory (recent messages kept in-memory).
+	// +optional
+	// +kubebuilder:default=20
+	// +kubebuilder:validation:Minimum=2
+	// +kubebuilder:validation:Maximum=200
+	WindowSize int `json:"windowSize,omitempty"`
+
+	// Enable auto-summarization of sessions at end.
+	// +optional
+	// +kubebuilder:default=true
+	AutoSummarize *bool `json:"autoSummarize,omitempty"`
+}
+
+// -------------------------------------------------------------------
 // MCPServer health check
 // -------------------------------------------------------------------
 

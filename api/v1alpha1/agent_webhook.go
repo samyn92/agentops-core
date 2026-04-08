@@ -82,6 +82,7 @@ func (r *Agent) validate() (admission.Warnings, error) {
 	errs, warnings := r.validateToolHooks(specPath)
 	allErrs = append(allErrs, errs...)
 	allErrs = append(allErrs, r.validateResourceRefs(specPath)...)
+	allErrs = append(allErrs, r.validateResourceBindings(specPath)...)
 	allErrs = append(allErrs, r.validateSchedule(specPath)...)
 
 	if len(allErrs) > 0 {
@@ -253,6 +254,29 @@ func (r *Agent) validateResourceRefs(specPath *field.Path) field.ErrorList {
 				specPath.Child("toolRefs").Index(i), tr.Name,
 				"exactly one of ociRef, configMapRef, or content must be set"))
 		}
+	}
+
+	return errs
+}
+
+func (r *Agent) validateResourceBindings(specPath *field.Path) field.ErrorList {
+	var errs field.ErrorList
+
+	// Check for duplicate resource binding names
+	seen := make(map[string]bool)
+	for i, rb := range r.Spec.ResourceBindings {
+		if rb.Name == "" {
+			errs = append(errs, field.Required(
+				specPath.Child("resourceBindings").Index(i).Child("name"),
+				"resource binding name is required"))
+			continue
+		}
+		if seen[rb.Name] {
+			errs = append(errs, field.Invalid(
+				specPath.Child("resourceBindings").Index(i).Child("name"), rb.Name,
+				"duplicate resource binding name"))
+		}
+		seen[rb.Name] = true
 	}
 
 	return errs

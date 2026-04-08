@@ -50,7 +50,7 @@ func testAgent() *agentsv1alpha1.Agent {
 
 func TestBuildAgentConfigMap(t *testing.T) {
 	agent := testAgent()
-	cm, err := BuildAgentConfigMap(agent)
+	cm, err := BuildAgentConfigMap(agent, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -239,5 +239,118 @@ func TestBuildMCPConfigMap_WithServers(t *testing.T) {
 	}
 	if !strings.Contains(entry.URL, "9001") {
 		t.Errorf("expected port 9001 in URL, got %q", entry.URL)
+	}
+}
+
+// ── AgentResource ConfigMap tests ──
+
+func TestBuildAgentConfigMap_WithResources(t *testing.T) {
+	agent := testAgent()
+	agent.Spec.ResourceBindings = []agentsv1alpha1.AgentResourceBinding{
+		{Name: "my-repo", ReadOnly: true, AutoContext: true},
+		{Name: "my-group"},
+	}
+
+	resources := []agentsv1alpha1.AgentResource{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-repo", Namespace: "agents"},
+			Spec: agentsv1alpha1.AgentResourceSpec{
+				Kind:        agentsv1alpha1.AgentResourceKindGitHubRepo,
+				DisplayName: "My Repo",
+				Description: "A test repo",
+				GitHub: &agentsv1alpha1.GitHubResourceConfig{
+					Owner:         "samyn92",
+					Repo:          "agentops-core",
+					DefaultBranch: "main",
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-group", Namespace: "agents"},
+			Spec: agentsv1alpha1.AgentResourceSpec{
+				Kind:        agentsv1alpha1.AgentResourceKindGitLabGroup,
+				DisplayName: "My Group",
+				GitLabGroup: &agentsv1alpha1.GitLabGroupResourceConfig{
+					BaseURL:  "https://gitlab.com",
+					Group:    "homecluster",
+					Projects: []string{"flux"},
+				},
+			},
+		},
+	}
+
+	cm, err := BuildAgentConfigMap(agent, resources, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data := cm.Data["config.json"]
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(data), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	if len(cfg.Resources) != 2 {
+		t.Fatalf("expected 2 resources, got %d", len(cfg.Resources))
+	}
+
+	// First resource: github-repo
+	r1 := cfg.Resources[0]
+	if r1.Name != "my-repo" {
+		t.Errorf("expected name=my-repo, got %q", r1.Name)
+	}
+	if r1.Kind != "github-repo" {
+		t.Errorf("expected kind=github-repo, got %q", r1.Kind)
+	}
+	if r1.DisplayName != "My Repo" {
+		t.Errorf("expected displayName=My Repo, got %q", r1.DisplayName)
+	}
+	if !r1.ReadOnly {
+		t.Error("expected readOnly=true")
+	}
+	if !r1.AutoContext {
+		t.Error("expected autoContext=true")
+	}
+	if r1.GitHub == nil {
+		t.Fatal("expected github config")
+	}
+	if r1.GitHub.Owner != "samyn92" {
+		t.Errorf("expected owner=samyn92, got %q", r1.GitHub.Owner)
+	}
+	if r1.GitHub.Repo != "agentops-core" {
+		t.Errorf("expected repo=agentops-core, got %q", r1.GitHub.Repo)
+	}
+
+	// Second resource: gitlab-group
+	r2 := cfg.Resources[1]
+	if r2.Kind != "gitlab-group" {
+		t.Errorf("expected kind=gitlab-group, got %q", r2.Kind)
+	}
+	if r2.ReadOnly {
+		t.Error("expected readOnly=false")
+	}
+	if r2.GitLabGroup == nil {
+		t.Fatal("expected gitlabGroup config")
+	}
+	if r2.GitLabGroup.Group != "homecluster" {
+		t.Errorf("expected group=homecluster, got %q", r2.GitLabGroup.Group)
+	}
+}
+
+func TestBuildAgentConfigMap_NoResources(t *testing.T) {
+	agent := testAgent()
+	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data := cm.Data["config.json"]
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(data), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	if len(cfg.Resources) != 0 {
+		t.Errorf("expected 0 resources, got %d", len(cfg.Resources))
 	}
 }

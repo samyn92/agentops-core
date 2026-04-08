@@ -60,25 +60,111 @@ type ContextEntry struct {
 	Path string `json:"path"`
 }
 
+// AgentResourceEntry describes a resource binding for the runtime config.
+type AgentResourceEntry struct {
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description,omitempty"`
+	ReadOnly    bool   `json:"readOnly,omitempty"`
+	AutoContext bool   `json:"autoContext,omitempty"`
+
+	// Kind-specific config (one of these will be set)
+	GitHub        *AgentResourceGitHubEntry        `json:"github,omitempty"`
+	GitHubOrg     *AgentResourceGitHubOrgEntry     `json:"githubOrg,omitempty"`
+	GitLab        *AgentResourceGitLabEntry        `json:"gitlab,omitempty"`
+	GitLabGroup   *AgentResourceGitLabGroupEntry   `json:"gitlabGroup,omitempty"`
+	Git           *AgentResourceGitEntry           `json:"git,omitempty"`
+	MCP           *AgentResourceMCPEntry           `json:"mcp,omitempty"`
+	S3            *AgentResourceS3Entry            `json:"s3,omitempty"`
+	Documentation *AgentResourceDocumentationEntry `json:"documentation,omitempty"`
+}
+
+// AgentResourceGitHubEntry holds GitHub repo config for the runtime.
+type AgentResourceGitHubEntry struct {
+	Owner         string `json:"owner"`
+	Repo          string `json:"repo"`
+	DefaultBranch string `json:"defaultBranch,omitempty"`
+	APIURL        string `json:"apiURL,omitempty"`
+}
+
+// AgentResourceGitHubOrgEntry holds GitHub org config for the runtime.
+type AgentResourceGitHubOrgEntry struct {
+	Org        string   `json:"org"`
+	RepoFilter []string `json:"repoFilter,omitempty"`
+	APIURL     string   `json:"apiURL,omitempty"`
+}
+
+// AgentResourceGitLabEntry holds GitLab project config for the runtime.
+type AgentResourceGitLabEntry struct {
+	BaseURL       string `json:"baseURL"`
+	Project       string `json:"project"`
+	DefaultBranch string `json:"defaultBranch,omitempty"`
+}
+
+// AgentResourceGitLabGroupEntry holds GitLab group config for the runtime.
+type AgentResourceGitLabGroupEntry struct {
+	BaseURL  string   `json:"baseURL"`
+	Group    string   `json:"group"`
+	Projects []string `json:"projects,omitempty"`
+}
+
+// AgentResourceGitEntry holds plain git repo config for the runtime.
+type AgentResourceGitEntry struct {
+	URL    string `json:"url"`
+	Branch string `json:"branch,omitempty"`
+}
+
+// AgentResourceMCPEntry holds MCP endpoint config for the runtime.
+type AgentResourceMCPEntry struct {
+	URL       string            `json:"url"`
+	Transport string            `json:"transport,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+}
+
+// AgentResourceS3Entry holds S3 bucket config for the runtime.
+type AgentResourceS3Entry struct {
+	Bucket   string `json:"bucket"`
+	Region   string `json:"region,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+	Prefix   string `json:"prefix,omitempty"`
+}
+
+// AgentResourceDocumentationEntry holds documentation config for the runtime.
+type AgentResourceDocumentationEntry struct {
+	URLs []string `json:"urls,omitempty"`
+}
+
+// MemoryConfigEntry holds memory configuration for the runtime.
+type MemoryConfigEntry struct {
+	ServerURL     string `json:"serverURL"`
+	Project       string `json:"project"`
+	ContextLimit  int    `json:"contextLimit"`
+	WindowSize    int    `json:"windowSize"`
+	AutoSummarize bool   `json:"autoSummarize"`
+}
+
 // AgentConfig is the JSON structure mounted at /etc/operator/config.json for the Fantasy runtime.
 type AgentConfig struct {
-	Runtime            string          `json:"runtime"`
-	Providers          []ProviderEntry `json:"providers"`
-	PrimaryProvider    string          `json:"primaryProvider,omitempty"`
-	PrimaryModel       string          `json:"primaryModel"`
-	FallbackModels     []string        `json:"fallbackModels,omitempty"`
-	TitleModel         string          `json:"titleModel,omitempty"`
-	SystemPrompt       string          `json:"systemPrompt,omitempty"`
-	BuiltinTools       []string        `json:"builtinTools,omitempty"`
-	Tools              []ToolEntry     `json:"tools"`
-	MCPServers         []MCPEntry      `json:"mcpServers,omitempty"`
-	ToolHooks          *ToolHooksEntry `json:"toolHooks,omitempty"`
-	ContextFiles       []ContextEntry  `json:"contextFiles,omitempty"`
-	Temperature        *float64        `json:"temperature,omitempty"`
-	MaxOutputTokens    *int64          `json:"maxOutputTokens,omitempty"`
-	MaxSteps           *int            `json:"maxSteps,omitempty"`
-	PermissionTools    []string        `json:"permissionTools,omitempty"`
-	EnableQuestionTool bool            `json:"enableQuestionTool,omitempty"`
+	Runtime            string               `json:"runtime"`
+	Providers          []ProviderEntry      `json:"providers"`
+	PrimaryProvider    string               `json:"primaryProvider,omitempty"`
+	PrimaryModel       string               `json:"primaryModel"`
+	FallbackModels     []string             `json:"fallbackModels,omitempty"`
+	TitleModel         string               `json:"titleModel,omitempty"`
+	SystemPrompt       string               `json:"systemPrompt,omitempty"`
+	BuiltinTools       []string             `json:"builtinTools,omitempty"`
+	Tools              []ToolEntry          `json:"tools"`
+	MCPServers         []MCPEntry           `json:"mcpServers,omitempty"`
+	ToolHooks          *ToolHooksEntry      `json:"toolHooks,omitempty"`
+	ContextFiles       []ContextEntry       `json:"contextFiles,omitempty"`
+	Temperature        *float64             `json:"temperature,omitempty"`
+	MaxOutputTokens    *int64               `json:"maxOutputTokens,omitempty"`
+	MaxSteps           *int                 `json:"maxSteps,omitempty"`
+	PermissionTools    []string             `json:"permissionTools,omitempty"`
+	EnableQuestionTool bool                 `json:"enableQuestionTool,omitempty"`
+	Resources          []AgentResourceEntry `json:"resources,omitempty"`
+	Memory             *MemoryConfigEntry   `json:"memory,omitempty"`
 }
 
 // ====================================================================
@@ -86,7 +172,8 @@ type AgentConfig struct {
 // ====================================================================
 
 // BuildAgentConfigMap generates the operator extension ConfigMap from an Agent spec.
-func BuildAgentConfigMap(agent *agentsv1alpha1.Agent) (*corev1.ConfigMap, error) {
+// mcpServers is the resolved list of MCPServer CRs (used to look up the memory server URL).
+func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, agentResources []agentsv1alpha1.AgentResource, mcpServers []agentsv1alpha1.MCPServer) (*corev1.ConfigMap, error) {
 	config := AgentConfig{
 		Runtime:            "fantasy",
 		PrimaryModel:       agent.Spec.Model,
@@ -99,6 +186,36 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent) (*corev1.ConfigMap, error)
 		MaxSteps:           agent.Spec.MaxSteps,
 		PermissionTools:    agent.Spec.PermissionTools,
 		EnableQuestionTool: agent.Spec.EnableQuestionTool,
+	}
+
+	// Memory (Engram integration)
+	if agent.Spec.Memory != nil {
+		serverURL := resolveMemoryServerURL(agent.Spec.Memory.ServerRef, agent.Namespace, mcpServers)
+		if serverURL != "" {
+			project := agent.Spec.Memory.Project
+			if project == "" {
+				project = agent.Name
+			}
+			contextLimit := agent.Spec.Memory.ContextLimit
+			if contextLimit == 0 {
+				contextLimit = 5
+			}
+			windowSize := agent.Spec.Memory.WindowSize
+			if windowSize == 0 {
+				windowSize = 20
+			}
+			autoSummarize := true
+			if agent.Spec.Memory.AutoSummarize != nil {
+				autoSummarize = *agent.Spec.Memory.AutoSummarize
+			}
+			config.Memory = &MemoryConfigEntry{
+				ServerURL:     serverURL,
+				Project:       project,
+				ContextLimit:  contextLimit,
+				WindowSize:    windowSize,
+				AutoSummarize: autoSummarize,
+			}
+		}
 	}
 
 	// Tools (toolRefs — loaded as MCP servers by Fantasy runtime)
@@ -134,6 +251,92 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent) (*corev1.ConfigMap, error)
 		}
 	}
 
+	// Resources (AgentResource bindings)
+	bindingMap := make(map[string]agentsv1alpha1.AgentResourceBinding)
+	for _, b := range agent.Spec.ResourceBindings {
+		bindingMap[b.Name] = b
+	}
+	for _, res := range agentResources {
+		binding := bindingMap[res.Name]
+		entry := AgentResourceEntry{
+			Name:        res.Name,
+			Kind:        string(res.Spec.Kind),
+			DisplayName: res.Spec.DisplayName,
+			Description: res.Spec.Description,
+			ReadOnly:    binding.ReadOnly,
+			AutoContext: binding.AutoContext,
+		}
+
+		// Map kind-specific config
+		switch res.Spec.Kind {
+		case agentsv1alpha1.AgentResourceKindGitHubRepo:
+			if res.Spec.GitHub != nil {
+				entry.GitHub = &AgentResourceGitHubEntry{
+					Owner:         res.Spec.GitHub.Owner,
+					Repo:          res.Spec.GitHub.Repo,
+					DefaultBranch: res.Spec.GitHub.DefaultBranch,
+					APIURL:        res.Spec.GitHub.APIURL,
+				}
+			}
+		case agentsv1alpha1.AgentResourceKindGitHubOrg:
+			if res.Spec.GitHubOrg != nil {
+				entry.GitHubOrg = &AgentResourceGitHubOrgEntry{
+					Org:        res.Spec.GitHubOrg.Org,
+					RepoFilter: res.Spec.GitHubOrg.RepoFilter,
+					APIURL:     res.Spec.GitHubOrg.APIURL,
+				}
+			}
+		case agentsv1alpha1.AgentResourceKindGitLabProject:
+			if res.Spec.GitLab != nil {
+				entry.GitLab = &AgentResourceGitLabEntry{
+					BaseURL:       res.Spec.GitLab.BaseURL,
+					Project:       res.Spec.GitLab.Project,
+					DefaultBranch: res.Spec.GitLab.DefaultBranch,
+				}
+			}
+		case agentsv1alpha1.AgentResourceKindGitLabGroup:
+			if res.Spec.GitLabGroup != nil {
+				entry.GitLabGroup = &AgentResourceGitLabGroupEntry{
+					BaseURL:  res.Spec.GitLabGroup.BaseURL,
+					Group:    res.Spec.GitLabGroup.Group,
+					Projects: res.Spec.GitLabGroup.Projects,
+				}
+			}
+		case agentsv1alpha1.AgentResourceKindGitRepo:
+			if res.Spec.Git != nil {
+				entry.Git = &AgentResourceGitEntry{
+					URL:    res.Spec.Git.URL,
+					Branch: res.Spec.Git.Branch,
+				}
+			}
+		case agentsv1alpha1.AgentResourceKindMCPEndpoint:
+			if res.Spec.MCP != nil {
+				entry.MCP = &AgentResourceMCPEntry{
+					URL:       res.Spec.MCP.URL,
+					Transport: res.Spec.MCP.Transport,
+					Headers:   res.Spec.MCP.Headers,
+				}
+			}
+		case agentsv1alpha1.AgentResourceKindS3Bucket:
+			if res.Spec.S3 != nil {
+				entry.S3 = &AgentResourceS3Entry{
+					Bucket:   res.Spec.S3.Bucket,
+					Region:   res.Spec.S3.Region,
+					Endpoint: res.Spec.S3.Endpoint,
+					Prefix:   res.Spec.S3.Prefix,
+				}
+			}
+		case agentsv1alpha1.AgentResourceKindDocumentation:
+			if res.Spec.Documentation != nil {
+				entry.Documentation = &AgentResourceDocumentationEntry{
+					URLs: res.Spec.Documentation.URLs,
+				}
+			}
+		}
+
+		config.Resources = append(config.Resources, entry)
+	}
+
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshal operator config: %w", err)
@@ -149,6 +352,26 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent) (*corev1.ConfigMap, error)
 			"config.json": string(data),
 		},
 	}, nil
+}
+
+// resolveMemoryServerURL determines the HTTP URL for the memory (Engram) server.
+// It first checks the resolved MCPServer list for a matching serverRef name;
+// if found, it uses MCPServerServiceURL. Otherwise, it assumes the server is
+// deployed manually (e.g., plain K8s Deployment+Service) and constructs a
+// conventional in-cluster URL: http://<serverRef>.<namespace>.svc:7437
+func resolveMemoryServerURL(serverRef string, namespace string, mcpServers []agentsv1alpha1.MCPServer) string {
+	if serverRef == "" {
+		return ""
+	}
+	// Check if serverRef matches a known MCPServer CR
+	for i := range mcpServers {
+		if mcpServers[i].Name == serverRef {
+			return MCPServerServiceURL(&mcpServers[i])
+		}
+	}
+	// Fallback: manually deployed service (convention: name.namespace.svc:7437)
+	const engramDefaultPort = 7437
+	return fmt.Sprintf("http://%s.%s.svc:%d", serverRef, namespace, engramDefaultPort)
 }
 
 // ====================================================================

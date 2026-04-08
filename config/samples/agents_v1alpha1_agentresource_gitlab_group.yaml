@@ -1,0 +1,18 @@
+apiVersion: agents.agentops.io/v1alpha1
+kind: AgentResource
+metadata:
+  name: homecluster-infra
+  namespace: agents
+spec:
+  kind: gitlab-group
+  displayName: "Homecluster Infrastructure"
+  description: "Flux GitOps repo and platform configs for the home cluster"
+  credentials:
+    name: gitlab-tokens
+    key: GITLAB_TOKEN
+  gitlabGroup:
+    baseURL: https://gitlab.com
+    group: homecluster
+    projects:
+      - flux
+      - platform-configs

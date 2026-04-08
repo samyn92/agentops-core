@@ -173,6 +173,35 @@ type AgentSpec struct {
 	MCPServers []MCPServerBinding `json:"mcpServers,omitempty"`
 
 	// ====================================================================
+	// MEMORY (Engram integration)
+	// ====================================================================
+
+	// Memory configuration for the Engram shared memory system.
+	// When set, the runtime injects recent context and enables
+	// memory MCP tools (mem_save, mem_search, etc.).
+	// +optional
+	Memory *MemorySpec `json:"memory,omitempty"`
+
+	// ====================================================================
+	// SKILLS (OCI-packaged system prompt extensions)
+	// ====================================================================
+
+	// Skill packages providing domain-specific instructions injected
+	// into the system prompt. Each ref is an OCI artifact, ConfigMap,
+	// or inline markdown.
+	// +optional
+	SkillRefs []ResourceRef `json:"skillRefs,omitempty"`
+
+	// ====================================================================
+	// RESOURCES (accessible external resources)
+	// ====================================================================
+
+	// External resources (repos, groups, MCP endpoints, etc.) bound to this agent.
+	// Users can select bound resources in the console UI to scope prompts.
+	// +optional
+	ResourceBindings []AgentResourceBinding `json:"resourceBindings,omitempty"`
+
+	// ====================================================================
 	// TOOL HOOKS (defense-in-depth)
 	// ====================================================================
 
@@ -259,6 +288,8 @@ const (
 	AgentConditionMCPServersReady = "MCPServersReady"
 	// AgentConditionProvidersReady indicates all LLM providers are configured.
 	AgentConditionProvidersReady = "ProvidersReady"
+	// AgentConditionResourcesReady indicates all resource bindings are resolved and ready.
+	AgentConditionResourcesReady = "ResourcesReady"
 )
 
 // +kubebuilder:object:root=true

@@ -1,0 +1,16 @@
+apiVersion: agents.agentops.io/v1alpha1
+kind: AgentResource
+metadata:
+  name: flux-repo
+  namespace: agents
+spec:
+  kind: gitlab-project
+  displayName: "Flux GitOps Repository"
+  description: "Main Flux GitOps repository for the home cluster"
+  credentials:
+    name: gitlab-tokens
+    key: GITLAB_TOKEN
+  gitlab:
+    baseURL: https://gitlab.com
+    project: homecluster/flux
+    defaultBranch: main

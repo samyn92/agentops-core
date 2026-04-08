@@ -30,6 +30,7 @@ rules:
 - apiGroups:
   - agents.agentops.io
   resources:
+  - agentresources
   - agentruns
   - agents
   - channels
@@ -45,6 +46,7 @@ rules:
 - apiGroups:
   - agents.agentops.io
   resources:
+  - agentresources/finalizers
   - agentruns/finalizers
   - agents/finalizers
   - channels/finalizers
@@ -54,6 +56,7 @@ rules:
 - apiGroups:
   - agents.agentops.io
   resources:
+  - agentresources/status
   - agentruns/status
   - agents/status
   - channels/status

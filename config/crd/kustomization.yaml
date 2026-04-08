@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/agents.agentops.io_agents.yaml
+- bases/agents.agentops.io_agentresources.yaml
 - bases/agents.agentops.io_channels.yaml
 - bases/agents.agentops.io_agentruns.yaml
 - bases/agents.agentops.io_mcpservers.yaml
