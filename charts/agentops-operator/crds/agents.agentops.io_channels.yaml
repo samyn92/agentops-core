@@ -4,24 +4,30 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.18.0
-  name: mcpservers.agents.agentops.io
+  name: channels.agents.agentops.io
 spec:
   group: agents.agentops.io
   names:
-    kind: MCPServer
-    listKind: MCPServerList
-    plural: mcpservers
+    kind: Channel
+    listKind: ChannelList
+    plural: channels
     shortNames:
-    - mcp
-    singular: mcpserver
+    - ch
+    singular: channel
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.type
+      name: Type
+      type: string
+    - jsonPath: .spec.agentRef
+      name: Agent
+      type: string
     - jsonPath: .status.phase
       name: Phase
       type: string
-    - jsonPath: .status.serviceURL
-      name: URL
+    - jsonPath: .status.webhookURL
+      name: Webhook
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -30,9 +36,8 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          MCPServer is the Schema for the mcpservers API.
-          Shared or external MCP infrastructure service. Multiple agents connect
-          to the same server via proxy sidecars.
+          Channel is the Schema for the channels API.
+          Universal external ingress. Bridges external platforms to Agents.
         properties:
           apiVersion:
             description: |-
@@ -52,63 +57,22 @@ spec:
           metadata:
             type: object
           spec:
-            description: |-
-              MCPServerSpec defines the desired state of MCPServer.
-              Exactly one of image or url must be set.
+            description: ChannelSpec defines the desired state of Channel.
             properties:
-              command:
-                description: Override command for the container.
-                items:
-                  type: string
-                type: array
-              env:
-                additionalProperties:
-                  type: string
-                description: Plain-text environment variables.
-                type: object
-              headers:
-                additionalProperties:
-                  type: string
-                description: Static headers to send to external MCP server.
-                type: object
-              healthCheck:
-                description: Health check configuration.
-                properties:
-                  intervalSeconds:
-                    default: 30
-                    description: Probe interval in seconds.
-                    type: integer
-                  path:
-                    description: Health check path (deploy mode) or full URL (external
-                      mode).
-                    type: string
-                  url:
-                    description: Health check URL (external mode only).
-                    type: string
-                type: object
-              image:
-                description: |-
-                  Container image for the MCP server (deploy mode).
-                  Mutually exclusive with url.
+              agentRef:
+                description: Name of the Agent CR to target.
+                minLength: 1
                 type: string
-              oauth:
-                description: OAuth config for external MCP server authentication.
+              discord:
+                description: Discord bot configuration.
                 properties:
-                  clientIdSecret:
-                    description: Secret containing the OAuth client ID.
-                    properties:
-                      key:
-                        description: Key within the Secret.
-                        type: string
-                      name:
-                        description: Name of the Secret.
-                        type: string
-                    required:
-                    - key
-                    - name
-                    type: object
-                  clientSecretSecret:
-                    description: Secret containing the OAuth client secret.
+                  allowedChannels:
+                    description: Allowed Discord channel IDs.
+                    items:
+                      type: string
+                    type: array
+                  botTokenSecret:
+                    description: Secret containing the bot token.
                     properties:
                       key:
                         description: Key within the Secret.
@@ -121,16 +85,104 @@ spec:
                     - name
                     type: object
                 required:
-                - clientIdSecret
-                - clientSecretSecret
+                - botTokenSecret
                 type: object
-              port:
-                default: 8080
-                description: Port the MCP server listens on.
+              github:
+                description: GitHub webhook configuration.
+                properties:
+                  actions:
+                    description: Filter by action (e.g. "opened", "synchronize").
+                    items:
+                      type: string
+                    type: array
+                  events:
+                    description: GitHub webhook events to listen for (e.g. "pull_request").
+                    items:
+                      type: string
+                    type: array
+                  labels:
+                    description: Filter by labels on the object.
+                    items:
+                      type: string
+                    type: array
+                  secret:
+                    description: Webhook secret for signature verification.
+                    properties:
+                      key:
+                        description: Key within the Secret.
+                        type: string
+                      name:
+                        description: Name of the Secret.
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                required:
+                - events
+                - secret
+                type: object
+              gitlab:
+                description: GitLab webhook configuration.
+                properties:
+                  actions:
+                    description: Filter by action (e.g. "open").
+                    items:
+                      type: string
+                    type: array
+                  events:
+                    description: GitLab webhook events to listen for (e.g. "Issue
+                      Hook").
+                    items:
+                      type: string
+                    type: array
+                  labels:
+                    description: Filter by labels on the object.
+                    items:
+                      type: string
+                    type: array
+                  secret:
+                    description: Webhook secret for signature verification.
+                    properties:
+                      key:
+                        description: Key within the Secret.
+                        type: string
+                      name:
+                        description: Name of the Secret.
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                required:
+                - events
+                - secret
+                type: object
+              image:
+                description: Container image for the channel bridge.
+                minLength: 1
+                type: string
+              imagePullPolicy:
+                default: IfNotPresent
+                description: Image pull policy.
+                enum:
+                - Always
+                - IfNotPresent
+                - Never
+                type: string
+              prompt:
+                description: |-
+                  Go text/template rendered with event data. Required for event types.
+                  Chat types forward user messages directly.
+                type: string
+              replicas:
+                default: 1
+                description: Number of replicas for the channel bridge.
                 format: int32
+                minimum: 1
                 type: integer
               resources:
-                description: Compute resources for the MCP server.
+                description: Compute resources for the channel container.
                 properties:
                   claims:
                     description: |-
@@ -188,44 +240,118 @@ spec:
                       More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                     type: object
                 type: object
-              secrets:
-                description: Secret-backed environment variables.
-                items:
-                  description: SecretEnvVar injects a Secret key as an environment
-                    variable.
-                  properties:
-                    name:
-                      description: Environment variable name.
+              slack:
+                description: Slack bot configuration.
+                properties:
+                  allowedChannels:
+                    description: Allowed Slack channel IDs.
+                    items:
                       type: string
-                    secretRef:
-                      description: Reference to the secret key.
-                      properties:
-                        key:
-                          description: Key within the Secret.
-                          type: string
-                        name:
-                          description: Name of the Secret.
-                          type: string
-                      required:
-                      - key
-                      - name
-                      type: object
-                  required:
-                  - name
-                  - secretRef
-                  type: object
-                type: array
-              serviceAccountName:
-                description: ServiceAccount for the MCP server pod.
+                    type: array
+                  botTokenSecret:
+                    description: Secret containing the bot token.
+                    properties:
+                      key:
+                        description: Key within the Secret.
+                        type: string
+                      name:
+                        description: Name of the Secret.
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                required:
+                - botTokenSecret
+                type: object
+              telegram:
+                description: Telegram bot configuration.
+                properties:
+                  allowedChats:
+                    description: Allowed Telegram chat IDs.
+                    items:
+                      type: string
+                    type: array
+                  allowedUsers:
+                    description: Allowed Telegram user IDs.
+                    items:
+                      type: string
+                    type: array
+                  botTokenSecret:
+                    description: Secret containing the bot token.
+                    properties:
+                      key:
+                        description: Key within the Secret.
+                        type: string
+                      name:
+                        description: Name of the Secret.
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                required:
+                - botTokenSecret
+                type: object
+              type:
+                description: 'Channel type: telegram, slack, discord, gitlab, github,
+                  webhook.'
+                enum:
+                - telegram
+                - slack
+                - discord
+                - gitlab
+                - github
+                - webhook
                 type: string
-              url:
-                description: |-
-                  URL of an external MCP server (external mode).
-                  Mutually exclusive with image.
-                type: string
+              webhook:
+                description: Webhook ingress configuration (host, TLS, etc.).
+                properties:
+                  host:
+                    description: Hostname for the ingress.
+                    type: string
+                  ingressClassName:
+                    description: Ingress class name.
+                    type: string
+                  path:
+                    description: Path (defaults to /).
+                    type: string
+                  tls:
+                    description: TLS configuration.
+                    properties:
+                      clusterIssuer:
+                        description: Cert-manager cluster issuer name.
+                        type: string
+                    required:
+                    - clusterIssuer
+                    type: object
+                required:
+                - host
+                type: object
+              webhookConfig:
+                description: Generic webhook configuration.
+                properties:
+                  secret:
+                    description: Optional HMAC secret for signature verification.
+                    properties:
+                      key:
+                        description: Key within the Secret.
+                        type: string
+                      name:
+                        description: Name of the Secret.
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                type: object
+            required:
+            - agentRef
+            - image
+            - type
             type: object
           status:
-            description: MCPServerStatus defines the observed state of MCPServer.
+            description: ChannelStatus defines the observed state of Channel.
             properties:
               conditions:
                 description: Standard conditions.
@@ -285,10 +411,13 @@ spec:
                   type: object
                 type: array
               phase:
-                description: 'Current phase: Pending, Deploying, Ready, Failed.'
+                description: 'Current phase: Pending, Ready, Failed.'
                 type: string
               serviceURL:
-                description: Internal service URL (e.g. http://mcp-k8s-mcp.ns.svc:8080).
+                description: Internal service URL.
+                type: string
+              webhookURL:
+                description: External webhook URL (if ingress configured).
                 type: string
             type: object
         type: object

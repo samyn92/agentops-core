@@ -1,0 +1,36 @@
+AgentOps Operator has been installed.
+
+Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+Release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+The operator is managing the following CRDs:
+  - agents.agents.agentops.io
+  - channels.agents.agentops.io
+  - agentruns.agents.agentops.io
+  - agenttools.agents.agentops.io
+  - agentresources.agents.agentops.io
+
+{{- if .Values.leaderElection.enabled }}
+
+Leader election is enabled (ID: {{ include "agentops-operator.leaderElectionId" . }}).
+{{- end }}
+
+{{- if .Values.metrics.enabled }}
+
+Metrics are available at:
+  Service: {{ include "agentops-operator.fullname" . }}-metrics:{{ .Values.metrics.service.port }}
+  Protocol: {{ if .Values.metrics.secure }}HTTPS{{ else }}HTTP{{ end }}
+{{- end }}
+
+{{- if .Values.webhooks.enabled }}
+
+Admission webhooks are ENABLED. Ensure TLS certificates are configured.
+{{- else }}
+
+Admission webhooks are DISABLED. Enable with --set webhooks.enabled=true
+{{- end }}
+
+To verify the installation:
+  kubectl get deployment -n {{ .Release.Namespace }} {{ include "agentops-operator.fullname" . }}
+  kubectl get pods -n {{ .Release.Namespace }} -l control-plane=controller-manager

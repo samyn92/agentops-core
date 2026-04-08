@@ -1,7 +1,14 @@
 ## Append samples of your project ##
 resources:
 - agents_v1alpha1_agent.yaml
+- agents_v1alpha1_agent_fantasy.yaml
+- agents_v1alpha1_agent_task_fantasy.yaml
 - agents_v1alpha1_agent_task_oci.yaml
+- agents_v1alpha1_agenttool_oci.yaml
+- agents_v1alpha1_agenttool_mcpserver.yaml
+- agents_v1alpha1_agenttool_mcpendpoint.yaml
+- agents_v1alpha1_agenttool_inline.yaml
+- agents_v1alpha1_agenttool_skill.yaml
 - agents_v1alpha1_agentresource_github_repo.yaml
 - agents_v1alpha1_agentresource_github_org.yaml
 - agents_v1alpha1_agentresource_gitlab_group.yaml
@@ -14,6 +21,4 @@ resources:
 - agents_v1alpha1_channel_github.yaml
 - agents_v1alpha1_channel_webhook.yaml
 - agents_v1alpha1_agentrun.yaml
-- agents_v1alpha1_mcpserver.yaml
-- agents_v1alpha1_mcpserver_external.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

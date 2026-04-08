@@ -32,7 +32,7 @@
       <stop offset="0%" stop-color="#10b981"/>
       <stop offset="100%" stop-color="#059669"/>
     </linearGradient>
-    <linearGradient id="mcpBadge" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="toolBadge" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#06b6d4"/>
       <stop offset="100%" stop-color="#0891b2"/>
     </linearGradient>
@@ -154,12 +154,26 @@
   <text x="440" y="92" text-anchor="middle" fill="#93c5fd" font-size="13" font-weight="600" letter-spacing="1.5">OPERATOR</text>
   <text x="440" y="105" text-anchor="middle" fill="#475569" font-size="9">reconciles Custom Resources</text>
 
-  <!-- Row 2: MCPServer CR — y=218 -->
-  <rect x="310" y="218" width="170" height="55" rx="8" fill="#0a2a2a" stroke="#06b6d4" stroke-width="0.8" filter="url(#softGlow)"/>
-  <rect x="310" y="218" width="170" height="20" rx="8" fill="url(#mcpBadge)" opacity="0.8"/>
-  <rect x="310" y="230" width="170" height="8" fill="url(#mcpBadge)" opacity="0.8"/>
-  <text x="395" y="234" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">MCPServer CR</text>
-  <text x="395" y="258" text-anchor="middle" fill="#67e8f9" font-size="8">deploy | external mode</text>
+  <!-- Row 2: AgentTool CR — y=200 -->
+  <rect x="290" y="200" width="210" height="95" rx="8" fill="#0a2a2a" stroke="#06b6d4" stroke-width="0.8" filter="url(#softGlow)"/>
+  <rect x="290" y="200" width="210" height="20" rx="8" fill="url(#toolBadge)" opacity="0.8"/>
+  <rect x="290" y="212" width="210" height="8" fill="url(#toolBadge)" opacity="0.8"/>
+  <text x="395" y="216" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">AgentTool CR</text>
+  <text x="395" y="238" text-anchor="middle" fill="#67e8f9" font-size="8">Unified tool catalog (6 sources)</text>
+  <!-- Source type pills -->
+  <rect x="298" y="248" width="32" height="13" rx="3" fill="#083344" stroke="#22d3ee" stroke-width="0.4"/>
+  <text x="314" y="258" text-anchor="middle" fill="#67e8f9" font-size="6">oci</text>
+  <rect x="334" y="248" width="52" height="13" rx="3" fill="#083344" stroke="#22d3ee" stroke-width="0.4"/>
+  <text x="360" y="258" text-anchor="middle" fill="#67e8f9" font-size="6">mcpServer</text>
+  <rect x="390" y="248" width="56" height="13" rx="3" fill="#083344" stroke="#22d3ee" stroke-width="0.4"/>
+  <text x="418" y="258" text-anchor="middle" fill="#67e8f9" font-size="6">mcpEndpoint</text>
+  <rect x="450" y="248" width="40" height="13" rx="3" fill="#083344" stroke="#22d3ee" stroke-width="0.4"/>
+  <text x="470" y="258" text-anchor="middle" fill="#67e8f9" font-size="6">inline</text>
+  <rect x="298" y="265" width="48" height="13" rx="3" fill="#083344" stroke="#22d3ee" stroke-width="0.4"/>
+  <text x="322" y="275" text-anchor="middle" fill="#67e8f9" font-size="6">configMap</text>
+  <rect x="350" y="265" width="32" height="13" rx="3" fill="#083344" stroke="#22d3ee" stroke-width="0.4"/>
+  <text x="366" y="275" text-anchor="middle" fill="#67e8f9" font-size="6">skill</text>
+  <text x="395" y="290" text-anchor="middle" fill="#475569" font-size="7">Replaces MCPServer CRD</text>
 
   <!-- Row 3: Channel Bridge (Chat) — y=330 -->
   <rect x="310" y="330" width="170" height="68" rx="8" fill="#172554" stroke="#60a5fa" stroke-width="0.8" filter="url(#softGlow)"/>
@@ -204,13 +218,15 @@
   <text x="750" y="148" text-anchor="middle" fill="#c4b5fd" font-size="8">Agent CR status, watch, list</text>
   <text x="750" y="160" text-anchor="middle" fill="#64748b" font-size="7">status.serviceURL discovery</text>
 
-  <!-- Row 2: MCP Server — y=218, same row as MCPServer CR -->
-  <rect x="650" y="218" width="250" height="68" rx="10" fill="#042f2e" stroke="#06b6d4" stroke-width="0.8" filter="url(#softGlow)"/>
-  <rect x="650" y="218" width="250" height="22" rx="10" fill="url(#mcpBadge)" opacity="0.85"/>
-  <rect x="650" y="232" width="250" height="8" fill="url(#mcpBadge)" opacity="0.85"/>
-  <text x="775" y="234" text-anchor="middle" fill="#fff" font-size="10" font-weight="600">MCP Server</text>
-  <text x="775" y="258" text-anchor="middle" fill="#67e8f9" font-size="9">Deployment + Service</text>
-  <text x="775" y="274" text-anchor="middle" fill="#94a3b8" font-size="8">mcp-gateway spawn mode (stdio → SSE)</text>
+  <!-- Row 2: MCP Tool Server (from AgentTool mcpServer source) — y=200 -->
+  <rect x="650" y="200" width="250" height="90" rx="10" fill="#042f2e" stroke="#06b6d4" stroke-width="0.8" filter="url(#softGlow)"/>
+  <rect x="650" y="200" width="250" height="22" rx="10" fill="url(#toolBadge)" opacity="0.85"/>
+  <rect x="650" y="214" width="250" height="8" fill="url(#toolBadge)" opacity="0.85"/>
+  <text x="775" y="216" text-anchor="middle" fill="#fff" font-size="10" font-weight="600">AgentTool Workloads</text>
+  <text x="775" y="240" text-anchor="middle" fill="#67e8f9" font-size="8">mcpServer → Deployment + Service</text>
+  <text x="775" y="256" text-anchor="middle" fill="#67e8f9" font-size="8">mcp-gateway spawn mode (stdio → SSE)</text>
+  <text x="775" y="272" text-anchor="middle" fill="#94a3b8" font-size="7">oci/skill → crane init · inline/configMap → volume mount</text>
+  <text x="775" y="284" text-anchor="middle" fill="#94a3b8" font-size="7">mcpEndpoint → health probe only</text>
 
   <!-- Row 3: Agent (daemon) — y=310 -->
   <rect x="650" y="310" width="250" height="200" rx="10" fill="#052e16" stroke="#10b981" stroke-width="1" filter="url(#softGlow)"/>
@@ -231,7 +247,7 @@
   <text x="781" y="423" text-anchor="middle" fill="#a7f3d0" font-size="7" font-weight="500">/question</text>
   <!-- MCP gw sidecar -->
   <rect x="664" y="436" width="218" height="18" rx="4" fill="#083344" stroke="#22d3ee" stroke-width="0.5"/>
-  <text x="773" y="449" text-anchor="middle" fill="#67e8f9" font-size="7">mcp-gateway sidecar (proxy mode)</text>
+  <text x="773" y="449" text-anchor="middle" fill="#67e8f9" font-size="7">mcp-gateway sidecar (proxy mode, deny/allow)</text>
   <!-- run_agent tool -->
   <rect x="664" y="464" width="218" height="30" rx="6" fill="#111827" stroke="#94a3b8" stroke-width="0.6"/>
   <text x="773" y="480" text-anchor="middle" fill="#e2e8f0" font-size="8" font-weight="600">run_agent tool</text>
@@ -271,13 +287,13 @@
   <rect x="380" y="155" width="115" height="16" rx="3" fill="#2d1040" stroke="#ec4899" stroke-width="0.5"/>
   <text x="437" y="167" text-anchor="middle" fill="#f9a8d4" font-size="8" font-weight="600">HTTP :4096 (BFF)</text>
 
-  <!-- MCPServer CR → MCP Server -->
-  <line x1="480" y1="248" x2="648" y2="248" stroke="#06b6d4" stroke-width="1.5" stroke-dasharray="6 3" marker-end="url(#arrowCyanM)" opacity="0.8"/>
-  <text x="563" y="242" fill="#67e8f9" font-size="7">reconciles</text>
+  <!-- AgentTool CR → AgentTool Workloads -->
+  <line x1="500" y1="245" x2="648" y2="245" stroke="#06b6d4" stroke-width="1.5" stroke-dasharray="6 3" marker-end="url(#arrowCyanM)" opacity="0.8"/>
+  <text x="572" y="238" fill="#67e8f9" font-size="7">reconciles</text>
 
-  <!-- MCP Server ↔ Agent daemon sidecar (SSE) -->
-  <path d="M775,286 L775,308" stroke="#06b6d4" stroke-width="1.2" stroke-dasharray="4 2" marker-end="url(#arrowCyanM)" opacity="0.7" fill="none"/>
-  <text x="788" y="301" fill="#67e8f9" font-size="6">SSE</text>
+  <!-- AgentTool Workloads ↔ Agent daemon sidecar (SSE) -->
+  <path d="M775,290 L775,308" stroke="#06b6d4" stroke-width="1.2" stroke-dasharray="4 2" marker-end="url(#arrowCyanM)" opacity="0.7" fill="none"/>
+  <text x="788" y="303" fill="#67e8f9" font-size="6">SSE</text>
 
   <!-- Chat channels → Chat Bridge -->
   <line x1="232" y1="366" x2="308" y2="366" stroke="#a855f7" stroke-width="1.5" marker-end="url(#arrowPurple)" opacity="0.9"/>

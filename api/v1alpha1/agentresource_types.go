@@ -21,7 +21,7 @@ import (
 )
 
 // AgentResourceKind defines the type of resource.
-// +kubebuilder:validation:Enum=github-repo;github-org;gitlab-project;gitlab-group;git-repo;mcp-endpoint;s3-bucket;documentation
+// +kubebuilder:validation:Enum=github-repo;github-org;gitlab-project;gitlab-group;git-repo;s3-bucket;documentation
 type AgentResourceKind string
 
 const (
@@ -30,7 +30,6 @@ const (
 	AgentResourceKindGitLabProject AgentResourceKind = "gitlab-project"
 	AgentResourceKindGitLabGroup   AgentResourceKind = "gitlab-group"
 	AgentResourceKindGitRepo       AgentResourceKind = "git-repo"
-	AgentResourceKindMCPEndpoint   AgentResourceKind = "mcp-endpoint"
 	AgentResourceKindS3Bucket      AgentResourceKind = "s3-bucket"
 	AgentResourceKindDocumentation AgentResourceKind = "documentation"
 )
@@ -51,7 +50,7 @@ type AgentResourceSpec struct {
 	// IDENTITY
 	// ====================================================================
 
-	// Kind of resource (e.g. github-repo, gitlab-group, git-repo, mcp-endpoint).
+	// Kind of resource (e.g. github-repo, gitlab-group, git-repo).
 	// +kubebuilder:validation:Required
 	Kind AgentResourceKind `json:"kind"`
 
@@ -98,10 +97,6 @@ type AgentResourceSpec struct {
 	// Plain git repository configuration (kind: git-repo).
 	// +optional
 	Git *GitResourceConfig `json:"git,omitempty"`
-
-	// MCP endpoint configuration (kind: mcp-endpoint).
-	// +optional
-	MCP *MCPResourceConfig `json:"mcp,omitempty"`
 
 	// S3 bucket configuration (kind: s3-bucket).
 	// +optional
@@ -204,24 +199,6 @@ type GitResourceConfig struct {
 	SSHKeySecret *SecretKeyRef `json:"sshKeySecret,omitempty"`
 }
 
-// MCPResourceConfig configures a browsable MCP endpoint resource.
-type MCPResourceConfig struct {
-	// MCP server URL (SSE or streamable HTTP).
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinLength=1
-	URL string `json:"url"`
-
-	// Transport type: sse or streamable-http.
-	// +optional
-	// +kubebuilder:default=sse
-	// +kubebuilder:validation:Enum=sse;streamable-http
-	Transport string `json:"transport,omitempty"`
-
-	// Static headers to send with requests.
-	// +optional
-	Headers map[string]string `json:"headers,omitempty"`
-}
-
 // S3ResourceConfig configures an S3-compatible bucket resource.
 type S3ResourceConfig struct {
 	// Bucket name.
@@ -284,8 +261,8 @@ const (
 
 // AgentResource is the Schema for the agentresources API.
 // A declarative catalog entry for an external resource (Git repo, GitLab group,
-// MCP endpoint, S3 bucket, documentation, etc.) that agents can work with.
-// Agents bind to resources via spec.resources, and users can select them
+// S3 bucket, documentation, etc.) that agents can work with.
+// Agents bind to resources via spec.resourceBindings, and users can select them
 // in the console UI to scope prompts.
 type AgentResource struct {
 	metav1.TypeMeta   `json:",inline"`

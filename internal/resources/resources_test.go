@@ -199,24 +199,42 @@ func TestBuildAgentRunJob(t *testing.T) {
 
 // ── MCP ConfigMap tests ──
 
-func TestBuildMCPConfigMap_NoServers(t *testing.T) {
+func TestBuildMCPConfigMap_NoMCPTools(t *testing.T) {
 	agent := testAgent()
-	cm, err := BuildMCPConfigMap(agent)
+	// No MCP-source tools
+	cm, err := BuildMCPConfigMap(agent, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if cm != nil {
-		t.Error("expected nil ConfigMap when no MCP servers")
+		t.Error("expected nil ConfigMap when no MCP tools")
 	}
 }
 
-func TestBuildMCPConfigMap_WithServers(t *testing.T) {
+func TestBuildMCPConfigMap_WithMCPTools(t *testing.T) {
 	agent := testAgent()
-	agent.Spec.MCPServers = []agentsv1alpha1.MCPServerBinding{
+	agent.Spec.Tools = []agentsv1alpha1.AgentToolBinding{
 		{Name: "github-mcp"},
 	}
 
-	cm, err := BuildMCPConfigMap(agent)
+	agentTools := []agentsv1alpha1.AgentTool{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "github-mcp", Namespace: "agents"},
+			Spec: agentsv1alpha1.AgentToolSpec{
+				MCPServer: &agentsv1alpha1.MCPServerToolSource{
+					Image: "ghcr.io/test/github-mcp:latest",
+					Port:  8080,
+				},
+			},
+			Status: agentsv1alpha1.AgentToolStatus{
+				Phase:      agentsv1alpha1.AgentToolPhaseReady,
+				SourceType: "mcpServer",
+				ServiceURL: "http://agtool-github-mcp.agents.svc:8080",
+			},
+		},
+	}
+
+	cm, err := BuildMCPConfigMap(agent, agentTools)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

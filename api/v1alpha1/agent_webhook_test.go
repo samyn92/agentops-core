@@ -135,7 +135,7 @@ func TestValidate_NoProviders(t *testing.T) {
 func TestValidate_NoTools(t *testing.T) {
 	agent := validAgent()
 	agent.Spec.BuiltinTools = nil
-	agent.Spec.ToolRefs = nil
+	agent.Spec.Tools = nil
 
 	_, err := agent.validate()
 	if err == nil {
@@ -143,11 +143,11 @@ func TestValidate_NoTools(t *testing.T) {
 	}
 }
 
-func TestValidate_ToolRefsOnly(t *testing.T) {
+func TestValidate_ToolsOnly(t *testing.T) {
 	agent := validAgent()
 	agent.Spec.BuiltinTools = nil
-	agent.Spec.ToolRefs = []ResourceRef{
-		{Name: "my-tool", OCIRef: &OCIRef{Ref: "ghcr.io/test/tool:1.0"}},
+	agent.Spec.Tools = []AgentToolBinding{
+		{Name: "my-tool"},
 	}
 
 	_, err := agent.validate()
@@ -217,24 +217,6 @@ func TestValidate_ToolHooks_AbsolutePath(t *testing.T) {
 	_, err := agent.validate()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-// ── ResourceRefs ──
-
-func TestValidate_ToolRef_MultipleSourcesInvalid(t *testing.T) {
-	agent := validAgent()
-	agent.Spec.ToolRefs = []ResourceRef{
-		{
-			Name:         "bad-tool",
-			OCIRef:       &OCIRef{Ref: "ghcr.io/test:1.0"},
-			ConfigMapRef: &SecretKeyRef{Name: "cm", Key: "k"},
-		},
-	}
-
-	_, err := agent.validate()
-	if err == nil {
-		t.Fatal("expected error for tool with multiple sources")
 	}
 }
 

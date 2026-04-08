@@ -1,0 +1,15 @@
+# AgentTool: OCI-packaged MCP tool server (pulled via crane init container)
+apiVersion: agents.agentops.io/v1alpha1
+kind: AgentTool
+metadata:
+  name: k8s-helper
+  labels:
+    app.kubernetes.io/name: agentops-core
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  description: "Kubernetes helper tool — deploy, inspect, and manage workloads"
+  category: infrastructure
+
+  oci:
+    ref: ghcr.io/samyn92/agent-tools/k8s-helper:1.0.0
+    pullPolicy: IfNotPresent

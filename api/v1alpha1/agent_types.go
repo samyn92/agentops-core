@@ -126,13 +126,13 @@ type AgentSpec struct {
 	ContextFiles []ContextFileRef `json:"contextFiles,omitempty"`
 
 	// ====================================================================
-	// TOOLS (loaded via MCP protocol from OCI/ConfigMap)
+	// TOOLS (unified via AgentTool CRs)
 	// ====================================================================
 
-	// OCI packages or ConfigMaps providing MCP tool servers.
-	// Tools are packaged as MCP servers and work with the Fantasy runtime.
+	// Tool bindings referencing AgentTool CRs. Each binding names an
+	// AgentTool and allows per-agent permission overrides.
 	// +optional
-	ToolRefs []ResourceRef `json:"toolRefs,omitempty"`
+	Tools []AgentToolBinding `json:"tools,omitempty"`
 
 	// Tools that require user approval before execution (permission gate).
 	// Each entry is a tool name. If empty, all tools run automatically.
@@ -165,14 +165,6 @@ type AgentSpec struct {
 	Storage *StorageSpec `json:"storage,omitempty"`
 
 	// ====================================================================
-	// MCP SERVERS
-	// ====================================================================
-
-	// Shared MCPServer bindings with per-agent permissions.
-	// +optional
-	MCPServers []MCPServerBinding `json:"mcpServers,omitempty"`
-
-	// ====================================================================
 	// MEMORY (Engram integration)
 	// ====================================================================
 
@@ -183,20 +175,10 @@ type AgentSpec struct {
 	Memory *MemorySpec `json:"memory,omitempty"`
 
 	// ====================================================================
-	// SKILLS (OCI-packaged system prompt extensions)
-	// ====================================================================
-
-	// Skill packages providing domain-specific instructions injected
-	// into the system prompt. Each ref is an OCI artifact, ConfigMap,
-	// or inline markdown.
-	// +optional
-	SkillRefs []ResourceRef `json:"skillRefs,omitempty"`
-
-	// ====================================================================
 	// RESOURCES (accessible external resources)
 	// ====================================================================
 
-	// External resources (repos, groups, MCP endpoints, etc.) bound to this agent.
+	// External resources (repos, groups, etc.) bound to this agent.
 	// Users can select bound resources in the console UI to scope prompts.
 	// +optional
 	ResourceBindings []AgentResourceBinding `json:"resourceBindings,omitempty"`
@@ -282,10 +264,8 @@ type AgentStatus struct {
 const (
 	// AgentConditionReady indicates the agent is fully operational.
 	AgentConditionReady = "Ready"
-	// AgentConditionToolsLoaded indicates all tool packages are loaded.
-	AgentConditionToolsLoaded = "ToolsLoaded"
-	// AgentConditionMCPServersReady indicates all MCP server bindings are ready.
-	AgentConditionMCPServersReady = "MCPServersReady"
+	// AgentConditionToolsReady indicates all bound AgentTools are Ready.
+	AgentConditionToolsReady = "ToolsReady"
 	// AgentConditionProvidersReady indicates all LLM providers are configured.
 	AgentConditionProvidersReady = "ProvidersReady"
 	// AgentConditionResourcesReady indicates all resource bindings are resolved and ready.

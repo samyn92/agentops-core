@@ -77,6 +77,23 @@ jobs:
         run: go vet ./...
 
   # =========================================================================
+  # Helm: lint and template the operator chart
+  # =========================================================================
+  helm-chart:
+    name: Helm Chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.17.3
+      - name: Helm Lint
+        run: helm lint charts/agentops-operator
+      - name: Helm Template
+        run: helm template test charts/agentops-operator --namespace agent-system
+
+  # =========================================================================
   # Docker: build and push images (main branch only)
   # =========================================================================
   docker-operator:

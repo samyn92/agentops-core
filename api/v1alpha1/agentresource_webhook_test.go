@@ -81,23 +81,6 @@ func TestAgentResourceValidate_Valid_Documentation(t *testing.T) {
 	}
 }
 
-func TestAgentResourceValidate_Valid_MCPEndpoint(t *testing.T) {
-	res := &AgentResource{
-		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
-		Spec: AgentResourceSpec{
-			Kind:        AgentResourceKindMCPEndpoint,
-			DisplayName: "MCP Server",
-			MCP: &MCPResourceConfig{
-				URL: "http://mcp.example.com/sse",
-			},
-		},
-	}
-	_, err := res.validate()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 // ── Missing config block ──
 
 func TestAgentResourceValidate_MissingConfig(t *testing.T) {

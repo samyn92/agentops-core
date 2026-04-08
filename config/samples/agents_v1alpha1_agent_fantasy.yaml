@@ -26,11 +26,9 @@ spec:
         name: llm-keys
         key: anthropic-api-key
 
-  # OCI tools packaged as MCP servers
-  toolRefs:
+  # Tool bindings reference AgentTool CRs by name
+  tools:
     - name: k8s-helper
-      ociRef:
-        ref: ghcr.io/samyn92/tools/k8s-helper:1.0
 
   systemPrompt: |
     You are a senior code reviewer. Review PRs thoroughly,

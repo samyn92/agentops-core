@@ -28,12 +28,12 @@ import (
 )
 
 // BuildAgentDeployment creates the Deployment for a daemon agent.
-func BuildAgentDeployment(agent *agentsv1alpha1.Agent, mcpServers []agentsv1alpha1.MCPServer) *appsv1.Deployment {
+func BuildAgentDeployment(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool) *appsv1.Deployment {
 	labels := CommonLabels(agent.Name, "runtime")
 	var replicas int32 = 1
 
 	// Build pod spec
-	podSpec := buildAgentPodSpec(agent, mcpServers, false)
+	podSpec := buildAgentPodSpec(agent, agentTools, false)
 
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -59,25 +59,52 @@ func BuildAgentDeployment(agent *agentsv1alpha1.Agent, mcpServers []agentsv1alph
 	}
 }
 
+// agentToolByName returns the AgentTool with the given name, or nil if not found.
+func agentToolByName(name string, agentTools []agentsv1alpha1.AgentTool) *agentsv1alpha1.AgentTool {
+	for i := range agentTools {
+		if agentTools[i].Name == name {
+			return &agentTools[i]
+		}
+	}
+	return nil
+}
+
+// hasMCPTools returns true if any of the agent's tool bindings reference MCP-source AgentTools.
+func hasMCPTools(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool) bool {
+	for _, binding := range agent.Spec.Tools {
+		tool := agentToolByName(binding.Name, agentTools)
+		if tool != nil && tool.IsMCPSource() {
+			return true
+		}
+	}
+	return false
+}
+
 // buildAgentPodSpec creates the complete PodSpec for daemon or task mode.
 // taskMode=true uses emptyDir for /data instead of PVC.
-func buildAgentPodSpec(agent *agentsv1alpha1.Agent, mcpServers []agentsv1alpha1.MCPServer, taskMode bool) corev1.PodSpec {
+func buildAgentPodSpec(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, taskMode bool) corev1.PodSpec {
 	// Volumes
-	volumes := buildVolumes(agent, taskMode)
+	volumes := buildVolumes(agent, agentTools, taskMode)
 
 	// Init containers: OCI pulls
-	initContainers := buildInitContainers(agent)
+	initContainers := buildInitContainers(agent, agentTools)
 
 	// Main container
-	mainContainer := buildMainContainer(agent, taskMode)
+	mainContainer := buildMainContainer(agent, agentTools, taskMode)
 
-	// Sidecar containers: MCP gateway proxies
+	// Sidecar containers: MCP gateway proxies for MCP-source tools
 	var sidecars []corev1.Container
-	for i, ms := range agent.Spec.MCPServers {
-		sidecar := buildGatewaySidecar(ms, mcpServers, i)
+	mcpIndex := 0
+	for _, binding := range agent.Spec.Tools {
+		tool := agentToolByName(binding.Name, agentTools)
+		if tool == nil || !tool.IsMCPSource() {
+			continue
+		}
+		sidecar := buildGatewaySidecar(binding, tool, mcpIndex)
 		if sidecar != nil {
 			sidecars = append(sidecars, *sidecar)
 		}
+		mcpIndex++
 	}
 
 	containers := append([]corev1.Container{mainContainer}, sidecars...)
@@ -95,7 +122,7 @@ func buildAgentPodSpec(agent *agentsv1alpha1.Agent, mcpServers []agentsv1alpha1.
 	return podSpec
 }
 
-func buildVolumes(agent *agentsv1alpha1.Agent, taskMode bool) []corev1.Volume {
+func buildVolumes(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, taskMode bool) []corev1.Volume {
 	volumes := []corev1.Volume{
 		// Tools (emptyDir, populated by init containers)
 		{
@@ -132,8 +159,8 @@ func buildVolumes(agent *agentsv1alpha1.Agent, taskMode bool) []corev1.Volume {
 		})
 	}
 
-	// Gateway config (if MCP servers)
-	if len(agent.Spec.MCPServers) > 0 {
+	// Gateway + MCP config volumes (if MCP-source tools present)
+	if hasMCPTools(agent, agentTools) {
 		volumes = append(volumes,
 			corev1.Volume{
 				Name: VolumeGateway,
@@ -159,17 +186,18 @@ func buildVolumes(agent *agentsv1alpha1.Agent, taskMode bool) []corev1.Volume {
 	}
 
 	// ConfigMap-based tools mounted as volumes
-	for _, tr := range agent.Spec.ToolRefs {
-		if tr.ConfigMapRef != nil {
+	for _, binding := range agent.Spec.Tools {
+		tool := agentToolByName(binding.Name, agentTools)
+		if tool != nil && tool.Spec.ConfigMap != nil {
 			volumes = append(volumes, corev1.Volume{
-				Name: fmt.Sprintf("tool-cm-%s", tr.Name),
+				Name: fmt.Sprintf("tool-cm-%s", binding.Name),
 				VolumeSource: corev1.VolumeSource{
 					ConfigMap: &corev1.ConfigMapVolumeSource{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: tr.ConfigMapRef.Name,
+							Name: tool.Spec.ConfigMap.Name,
 						},
 						Items: []corev1.KeyToPath{
-							{Key: tr.ConfigMapRef.Key, Path: "index.js"},
+							{Key: tool.Spec.ConfigMap.Key, Path: "index.js"},
 						},
 					},
 				},
@@ -195,13 +223,24 @@ func buildVolumes(agent *agentsv1alpha1.Agent, taskMode bool) []corev1.Volume {
 	}
 
 	// Pull secret volumes for OCI tools that need auth
-	for _, tr := range agent.Spec.ToolRefs {
-		if tr.OCIRef != nil && tr.OCIRef.PullSecret != nil {
+	for _, binding := range agent.Spec.Tools {
+		tool := agentToolByName(binding.Name, agentTools)
+		if tool != nil && tool.Spec.OCI != nil && tool.Spec.OCI.PullSecret != nil {
 			volumes = append(volumes, corev1.Volume{
-				Name: fmt.Sprintf("pull-secret-init-pull-tool-%s", tr.Name),
+				Name: fmt.Sprintf("pull-secret-init-pull-tool-%s", binding.Name),
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
-						SecretName: tr.OCIRef.PullSecret.Name,
+						SecretName: tool.Spec.OCI.PullSecret.Name,
+					},
+				},
+			})
+		}
+		if tool != nil && tool.Spec.Skill != nil && tool.Spec.Skill.PullSecret != nil {
+			volumes = append(volumes, corev1.Volume{
+				Name: fmt.Sprintf("pull-secret-init-pull-skill-%s", binding.Name),
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: tool.Spec.Skill.PullSecret.Name,
 					},
 				},
 			})
@@ -211,19 +250,33 @@ func buildVolumes(agent *agentsv1alpha1.Agent, taskMode bool) []corev1.Volume {
 	return volumes
 }
 
-func buildInitContainers(agent *agentsv1alpha1.Agent) []corev1.Container {
+func buildInitContainers(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool) []corev1.Container {
 	var inits []corev1.Container
 
-	// OCI tool pulls
-	for _, tr := range agent.Spec.ToolRefs {
-		if tr.OCIRef != nil {
+	// OCI tool pulls and skill pulls
+	for _, binding := range agent.Spec.Tools {
+		tool := agentToolByName(binding.Name, agentTools)
+		if tool == nil {
+			continue
+		}
+		if tool.Spec.OCI != nil {
 			inits = append(inits, buildCraneInitContainer(
-				fmt.Sprintf("init-pull-tool-%s", tr.Name),
-				tr.OCIRef.Ref,
-				fmt.Sprintf("%s/%s", MountTools, tr.Name),
+				fmt.Sprintf("init-pull-tool-%s", binding.Name),
+				tool.Spec.OCI.Ref,
+				fmt.Sprintf("%s/%s", MountTools, binding.Name),
 				VolumeTools,
 				MountTools,
-				tr.OCIRef.PullSecret,
+				tool.Spec.OCI.PullSecret,
+			))
+		}
+		if tool.Spec.Skill != nil {
+			inits = append(inits, buildCraneInitContainer(
+				fmt.Sprintf("init-pull-skill-%s", binding.Name),
+				tool.Spec.Skill.Ref,
+				fmt.Sprintf("%s/%s", MountTools, binding.Name),
+				VolumeTools,
+				MountTools,
+				tool.Spec.Skill.PullSecret,
 			))
 		}
 	}
@@ -265,7 +318,7 @@ func buildCraneInitContainer(name, ref, destPath, volumeName, mountPath string, 
 	return c
 }
 
-func buildMainContainer(agent *agentsv1alpha1.Agent, taskMode bool) corev1.Container {
+func buildMainContainer(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, taskMode bool) corev1.Container {
 	volumeMounts := []corev1.VolumeMount{
 		{Name: VolumeTools, MountPath: MountTools},
 		{Name: VolumeConfig, MountPath: MountConfig},
@@ -278,8 +331,8 @@ func buildMainContainer(agent *agentsv1alpha1.Agent, taskMode bool) corev1.Conta
 		})
 	}
 
-	// MCP config mount
-	if len(agent.Spec.MCPServers) > 0 {
+	// MCP config mount (if any MCP-source tools)
+	if hasMCPTools(agent, agentTools) {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      VolumeMCP,
 			MountPath: MountMCP,
@@ -287,11 +340,12 @@ func buildMainContainer(agent *agentsv1alpha1.Agent, taskMode bool) corev1.Conta
 	}
 
 	// ConfigMap-based tools
-	for _, tr := range agent.Spec.ToolRefs {
-		if tr.ConfigMapRef != nil {
+	for _, binding := range agent.Spec.Tools {
+		tool := agentToolByName(binding.Name, agentTools)
+		if tool != nil && tool.Spec.ConfigMap != nil {
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
-				Name:      fmt.Sprintf("tool-cm-%s", tr.Name),
-				MountPath: fmt.Sprintf("%s/%s", MountTools, tr.Name),
+				Name:      fmt.Sprintf("tool-cm-%s", binding.Name),
+				MountPath: fmt.Sprintf("%s/%s", MountTools, binding.Name),
 			})
 		}
 	}
@@ -433,20 +487,12 @@ func buildEnvVars(agent *agentsv1alpha1.Agent) []corev1.EnvVar {
 // MCP Gateway sidecar
 // ====================================================================
 
-func buildGatewaySidecar(binding agentsv1alpha1.MCPServerBinding, mcpServers []agentsv1alpha1.MCPServer, index int) *corev1.Container {
-	// Find the MCPServer to get its service URL
-	var upstream string
-	for _, mcp := range mcpServers {
-		if mcp.Name == binding.Name {
-			if mcp.Spec.URL != "" {
-				// External mode
-				upstream = mcp.Spec.URL
-			} else {
-				// Deploy mode
-				upstream = MCPServerServiceURL(&mcp)
-			}
-			break
-		}
+func buildGatewaySidecar(binding agentsv1alpha1.AgentToolBinding, tool *agentsv1alpha1.AgentTool, index int) *corev1.Container {
+	// Determine the upstream URL from the AgentTool's status
+	upstream := tool.Status.ServiceURL
+	if upstream == "" {
+		// Fallback: compute from the tool spec
+		upstream = AgentToolServiceURL(tool)
 	}
 
 	if upstream == "" {
@@ -457,7 +503,7 @@ func buildGatewaySidecar(binding agentsv1alpha1.MCPServerBinding, mcpServers []a
 
 	return &corev1.Container{
 		Name:  fmt.Sprintf("gw-%s", binding.Name),
-		Image: "ghcr.io/samyn92/mcp-gateway:latest",
+		Image: MCPGatewayImage,
 		Env: []corev1.EnvVar{
 			{Name: "GATEWAY_MODE", Value: "proxy"},
 			{Name: "GATEWAY_UPSTREAM", Value: upstream},

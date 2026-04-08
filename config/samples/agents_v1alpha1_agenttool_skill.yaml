@@ -1,0 +1,15 @@
+# AgentTool: OCI-packaged skill (system prompt extension markdown)
+apiVersion: agents.agentops.io/v1alpha1
+kind: AgentTool
+metadata:
+  name: code-review-skill
+  labels:
+    app.kubernetes.io/name: agentops-core
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  description: "Code review skill — best practices and review checklist"
+  category: coding
+
+  skill:
+    ref: ghcr.io/samyn92/agent-tools/code-review-skill:1.0.0
+    pullPolicy: IfNotPresent

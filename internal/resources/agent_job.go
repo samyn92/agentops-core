@@ -24,12 +24,12 @@ import (
 )
 
 // BuildAgentRunJob creates a Job for a task-mode AgentRun.
-func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent, mcpServers []agentsv1alpha1.MCPServer) *batchv1.Job {
+func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool) *batchv1.Job {
 	labels := CommonLabels(agent.Name, "task-run")
 	labels["agents.agentops.io/run"] = run.Name
 
 	// Build the pod spec in task mode
-	podSpec := buildAgentPodSpec(agent, mcpServers, true)
+	podSpec := buildAgentPodSpec(agent, agentTools, true)
 
 	// Inject AGENT_PROMPT into the main container
 	for i := range podSpec.Containers {

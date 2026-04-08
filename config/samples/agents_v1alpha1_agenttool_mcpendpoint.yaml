@@ -1,0 +1,27 @@
+# AgentTool: External MCP endpoint (replaces MCPServer external mode)
+apiVersion: agents.agentops.io/v1alpha1
+kind: AgentTool
+metadata:
+  name: external-k8s-mcp
+  labels:
+    app.kubernetes.io/name: agentops-core
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  description: "External Kubernetes MCP server — cluster management"
+  category: infrastructure
+
+  mcpEndpoint:
+    url: https://mcp.kubernetes.internal:8443
+    transport: sse
+    headers:
+      X-Custom-Header: "my-value"
+    oauth:
+      clientIdSecret:
+        name: k8s-mcp-oauth
+        key: client-id
+      clientSecretSecret:
+        name: k8s-mcp-oauth
+        key: client-secret
+    healthCheck:
+      url: https://mcp.kubernetes.internal:8443/health
+      intervalSeconds: 60

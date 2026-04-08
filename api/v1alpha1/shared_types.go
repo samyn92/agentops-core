@@ -57,26 +57,6 @@ type OCIRef struct {
 }
 
 // -------------------------------------------------------------------
-// Resource references (tools, skills)
-// -------------------------------------------------------------------
-
-// ResourceRef references a resource from OCI, ConfigMap, or inline content.
-// Exactly one of ociRef, configMapRef, or content must be set.
-type ResourceRef struct {
-	// Logical name for this resource.
-	Name string `json:"name"`
-	// OCI artifact reference.
-	// +optional
-	OCIRef *OCIRef `json:"ociRef,omitempty"`
-	// ConfigMap reference (name + key).
-	// +optional
-	ConfigMapRef *SecretKeyRef `json:"configMapRef,omitempty"`
-	// Inline content (< 4KB, for prototyping).
-	// +optional
-	Content string `json:"content,omitempty"`
-}
-
-// -------------------------------------------------------------------
 // Provider & model
 // -------------------------------------------------------------------
 
@@ -100,20 +80,29 @@ type ContextFileRef struct {
 }
 
 // -------------------------------------------------------------------
-// MCP bindings (per-agent)
+// AgentTool bindings (per-agent)
 // -------------------------------------------------------------------
 
-// MCPServerBinding references a shared MCPServer with per-agent permissions.
-type MCPServerBinding struct {
-	// Name of the MCPServer CR to bind.
+// AgentToolBinding references an AgentTool CR with optional per-agent overrides.
+type AgentToolBinding struct {
+	// Name of the AgentTool CR.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
-	// Per-agent deny/allow rules for MCP tool calls.
+	// Override permissions from AgentTool defaults.
 	// +optional
 	Permissions *MCPPermissions `json:"permissions,omitempty"`
-	// MCP tools to promote to first-class tools (registered directly, not via proxy).
+	// MCP tools to promote to first-class (mcpServer/mcpEndpoint sources only).
 	// +optional
 	DirectTools []string `json:"directTools,omitempty"`
+	// Auto-inject skill content into every prompt (skill sources only).
+	// +optional
+	AutoContext bool `json:"autoContext,omitempty"`
 }
+
+// -------------------------------------------------------------------
+// MCP permissions (used by AgentToolBinding)
+// -------------------------------------------------------------------
 
 // MCPPermissions configures deny/allow rules for MCP tool calls on the proxy gateway.
 type MCPPermissions struct {
@@ -300,8 +289,9 @@ type AgentResourceBinding struct {
 
 // MemorySpec configures the Engram shared memory system for an agent.
 type MemorySpec struct {
-	// Name of the MCPServer CR providing Engram (e.g. "engram").
-	// The runtime connects to Engram's REST API via the MCPServer's
+	// Reference to the memory server. Can be an AgentTool CR name
+	// (with mcpServer/mcpEndpoint source) or a plain service name.
+	// The runtime connects to Engram's REST API via the resolved
 	// service URL.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
@@ -333,10 +323,10 @@ type MemorySpec struct {
 }
 
 // -------------------------------------------------------------------
-// MCPServer health check
+// MCP health check (used by AgentTool mcpServer/mcpEndpoint sources)
 // -------------------------------------------------------------------
 
-// MCPHealthCheck configures health probing for an MCPServer.
+// MCPHealthCheck configures health probing for MCP tools.
 type MCPHealthCheck struct {
 	// Health check path (deploy mode) or full URL (external mode).
 	// +optional
@@ -351,7 +341,7 @@ type MCPHealthCheck struct {
 }
 
 // -------------------------------------------------------------------
-// MCPServer OAuth (external mode)
+// MCP OAuth (used by AgentTool mcpEndpoint source)
 // -------------------------------------------------------------------
 
 // MCPOAuthConfig configures OAuth for external MCP servers.

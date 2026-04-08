@@ -50,40 +50,6 @@ func BuildAgentService(agent *agentsv1alpha1.Agent) *corev1.Service {
 	}
 }
 
-// BuildMCPServerService creates a Service for a deployed MCPServer.
-func BuildMCPServerService(mcp *agentsv1alpha1.MCPServer) *corev1.Service {
-	name := MCPServerObjectName(mcp.Name)
-	port := mcp.Spec.Port
-	if port == 0 {
-		port = MCPServerDefaultPort
-	}
-
-	return &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: mcp.Namespace,
-			Labels: map[string]string{
-				LabelComponent: "mcp-server",
-				LabelManagedBy: ManagedByValue,
-			},
-		},
-		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{
-				LabelComponent: "mcp-server",
-				"app":          name,
-			},
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "mcp",
-					Port:       port,
-					TargetPort: intstr.FromInt32(port),
-					Protocol:   corev1.ProtocolTCP,
-				},
-			},
-		},
-	}
-}
-
 // BuildChannelService creates a Service for a Channel bridge.
 func BuildChannelService(ch *agentsv1alpha1.Channel) *corev1.Service {
 	return &corev1.Service{
@@ -115,14 +81,4 @@ func BuildChannelService(ch *agentsv1alpha1.Channel) *corev1.Service {
 // AgentServiceURL returns the in-cluster URL for a daemon agent's service.
 func AgentServiceURL(agent *agentsv1alpha1.Agent) string {
 	return fmt.Sprintf("http://%s.%s.svc:%d", agent.Name, agent.Namespace, AgentRuntimePort)
-}
-
-// MCPServerServiceURL returns the in-cluster URL for an MCPServer's service.
-func MCPServerServiceURL(mcp *agentsv1alpha1.MCPServer) string {
-	name := MCPServerObjectName(mcp.Name)
-	port := mcp.Spec.Port
-	if port == 0 {
-		port = MCPServerDefaultPort
-	}
-	return fmt.Sprintf("http://%s.%s.svc:%d", name, mcp.Namespace, port)
 }

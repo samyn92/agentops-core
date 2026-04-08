@@ -81,7 +81,6 @@ func (r *Agent) validate() (admission.Warnings, error) {
 	allErrs = append(allErrs, r.validateTools(specPath)...)
 	errs, warnings := r.validateToolHooks(specPath)
 	allErrs = append(allErrs, errs...)
-	allErrs = append(allErrs, r.validateResourceRefs(specPath)...)
 	allErrs = append(allErrs, r.validateResourceBindings(specPath)...)
 	allErrs = append(allErrs, r.validateSchedule(specPath)...)
 
@@ -175,13 +174,13 @@ func (r *Agent) validateProviders(specPath *field.Path) field.ErrorList {
 func (r *Agent) validateTools(specPath *field.Path) field.ErrorList {
 	var errs field.ErrorList
 
-	// At least one tool source (builtin OR toolRefs)
-	toolCount := len(r.Spec.ToolRefs)
+	// At least one tool source (builtin OR tools)
+	toolCount := len(r.Spec.Tools)
 	toolCount += r.BuiltinToolCount()
 
 	if toolCount == 0 {
-		errs = append(errs, field.Required(specPath.Child("toolRefs"),
-			"agents need at least one tool (builtinTools or toolRefs)"))
+		errs = append(errs, field.Required(specPath.Child("tools"),
+			"agents need at least one tool (builtinTools or tools)"))
 	}
 
 	return errs
@@ -220,8 +219,8 @@ func (r *Agent) validateToolHooks(specPath *field.Path) (field.ErrorList, admiss
 	for _, bt := range r.Spec.BuiltinTools {
 		knownTools[bt] = true
 	}
-	for _, tr := range r.Spec.ToolRefs {
-		knownTools[tr.Name] = true
+	for _, tb := range r.Spec.Tools {
+		knownTools[tb.Name] = true
 	}
 	knownTools["run_agent"] = true
 	knownTools["get_agent_run"] = true
@@ -233,30 +232,6 @@ func (r *Agent) validateToolHooks(specPath *field.Path) (field.ErrorList, admiss
 	}
 
 	return errs, warnings
-}
-
-func (r *Agent) validateResourceRefs(specPath *field.Path) field.ErrorList {
-	var errs field.ErrorList
-
-	for i, tr := range r.Spec.ToolRefs {
-		sources := 0
-		if tr.OCIRef != nil {
-			sources++
-		}
-		if tr.ConfigMapRef != nil {
-			sources++
-		}
-		if tr.Content != "" {
-			sources++
-		}
-		if sources != 1 {
-			errs = append(errs, field.Invalid(
-				specPath.Child("toolRefs").Index(i), tr.Name,
-				"exactly one of ociRef, configMapRef, or content must be set"))
-		}
-	}
-
-	return errs
 }
 
 func (r *Agent) validateResourceBindings(specPath *field.Path) field.ErrorList {

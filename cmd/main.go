@@ -230,11 +230,11 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "AgentRun")
 		os.Exit(1)
 	}
-	if err := (&controller.MCPServerReconciler{
+	if err := (&controller.AgentToolReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
+		setupLog.Error(err, "unable to create controller", "controller", "AgentTool")
 		os.Exit(1)
 	}
 	if err := (&controller.AgentResourceReconciler{
@@ -256,8 +256,8 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Channel")
 			os.Exit(1)
 		}
-		if err := (&agentsv1alpha1.MCPServer{}).SetupWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "MCPServer")
+		if err := (&agentsv1alpha1.AgentTool{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "AgentTool")
 			os.Exit(1)
 		}
 		if err := (&agentsv1alpha1.AgentResource{}).SetupWebhookWithManager(mgr); err != nil {

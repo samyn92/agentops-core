@@ -1,4 +1,4 @@
-# Example: Task mode agent with OCI tools, context, and scheduling
+# Example: Task mode agent with AgentTool bindings, context, and scheduling
 apiVersion: agents.agentops.io/v1alpha1
 kind: Agent
 metadata:
@@ -28,16 +28,10 @@ spec:
         name: agent-context
         key: AGENTS.md
 
-  # OCI tools (MCP servers)
-  toolRefs:
-    - name: jira_tools
-      ociRef:
-        ref: ghcr.io/samyn92/tools/jira:0.1.0
-        pullPolicy: IfNotPresent
-    - name: repo_helpers
-      configMapRef:
-        name: agent-tool-bundles
-        key: manifest.json
+  # Tool bindings reference AgentTool CRs by name
+  tools:
+    - name: jira-tools
+    - name: repo-helpers
 
   env:
     WORKSPACE_ROOT: /workspace
@@ -55,7 +49,7 @@ spec:
 
   toolHooks:
     auditTools:
-      - jira_tools
+      - jira-tools
 
   networkPolicy:
     enabled: true

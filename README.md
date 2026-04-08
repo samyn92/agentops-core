@@ -1,6 +1,6 @@
 # agentops-core
 
-Kubernetes operator for deploying AI agents as native workloads. Define agents, MCP servers, channels, and resources as Custom Resources — the operator handles deployments, jobs, storage, networking, MCP gateway sidecars, channel bridges, concurrency control, and memory integration. Agents run the [Charm Fantasy SDK](https://github.com/charmbracelet/fantasy) via the standalone [agentops-runtime](https://github.com/samyn92/agentops-runtime).
+Kubernetes operator for deploying AI agents as native workloads. Define agents, tools, channels, and resources as Custom Resources — the operator handles deployments, jobs, storage, networking, MCP gateway sidecars, channel bridges, concurrency control, and memory integration. Agents run the [Charm Fantasy SDK](https://github.com/charmbracelet/fantasy) via the standalone [agentops-runtime](https://github.com/samyn92/agentops-runtime).
 
 ## Architecture
 
@@ -44,11 +44,14 @@ EXTERNAL                       OPERATOR (reconciles)                     KUBERNE
                                                         │     /prompt      │    (already running)
                                                         └──────────────────┘
 
-  MCPServer CRs                ┌──────────────────┐
-  (deploy mode)  ────────────► │  MCP Deployment   │  (mcp-gateway spawn mode)
-                               │  + Service        │◄──── SSE ──── gw sidecar in Agent pod
-  (external mode) ─────────────│  health probe     │               (proxy mode, deny/allow rules)
-                               └──────────────────┘
+  AgentTool CRs                 ┌──────────────────┐
+  (mcpServer source) ─────────► │  MCP Deployment   │  (mcp-gateway spawn mode)
+                                │  + Service        │◄──── SSE ──── gw sidecar in Agent pod
+  (mcpEndpoint source) ─────────│  health probe     │               (proxy mode, deny/allow rules)
+                                └──────────────────┘
+  (oci source) ─────────────────────── crane init ──────────► /tools/<name> in Agent pod
+  (skill source) ───────────────────── crane init ──────────► /skills/<name> in Agent pod
+  (inline/configMap source) ────────── ConfigMap mount ─────► /tools/<name> in Agent pod
 
   Engram (memory)              ┌──────────────────┐
   Deployed separately          │  PVC + Deployment │  :7437 (HTTP REST)
@@ -76,11 +79,11 @@ Five CRDs in API group `agents.agentops.io/v1alpha1`:
 
 | CRD | Short Name | Description |
 |-----|-----------|-------------|
-| `Agent` | `ag` | AI agent — model, tools, memory, MCP bindings, mode |
+| `Agent` | `ag` | AI agent — model, tools, memory, mode |
 | `AgentRun` | `ar` | Single prompt execution against an agent |
 | `Channel` | `ch` | Bridge from external platforms to agents |
-| `MCPServer` | `mcp` | Shared MCP server infrastructure |
-| `AgentResource` | `ares` | External resource catalog (repos, S3, docs, MCP endpoints) |
+| `AgentTool` | `agtool` | Unified tool catalog — OCI, MCP, inline, skill |
+| `AgentResource` | `ares` | External resource catalog (repos, S3, docs) |
 
 ### Agent
 
@@ -96,8 +99,7 @@ Spec highlights:
 | Runtime | `image`, `builtinTools`, `temperature`, `maxOutputTokens`, `maxSteps` |
 | Model | `model`, `primaryProvider`, `titleModel`, `providers`, `fallbackModels` |
 | Identity | `systemPrompt`, `contextFiles` |
-| Tools | `toolRefs` (OCI tools), `permissionTools`, `enableQuestionTool` |
-| MCP Servers | `mcpServers` (bindings with per-agent deny/allow permissions) |
+| Tools | `tools` (AgentTool bindings with per-agent permissions), `permissionTools`, `enableQuestionTool` |
 | Memory | `memory` (Engram integration: serverRef, project, contextLimit, windowSize, autoSummarize) |
 | Tool Hooks | `toolHooks` (blocked commands, allowed paths, audit tools) |
 | Resources | `resourceBindings` (bind AgentResource CRs for context injection) |
@@ -105,7 +107,6 @@ Spec highlights:
 | Concurrency | `concurrency.maxRuns`, `concurrency.policy` (queue/reject/replace) |
 | Storage | `storage` (PVC for daemon agents) |
 | Infrastructure | `resources`, `serviceAccountName`, `timeout`, `networkPolicy` |
-| Skills | `skillRefs` (OCI-packaged markdown instructions, planned) |
 
 ### AgentRun
 
@@ -122,12 +123,20 @@ Bridges external platforms to agents. Two bridge types:
 
 Deployed as Deployments with optional Ingress + TLS (cert-manager).
 
-### MCPServer
+### AgentTool
 
-Two deployment modes:
+Unified tool catalog entry. Defines a tool by what it does, not how it's delivered. Six source types:
 
-- **`deploy`** — operator creates a Deployment + Service running the specified image behind `mcp-gateway` in spawn mode (stdio -> HTTP+SSE)
-- **`external`** — validates an externally-managed endpoint URL
+| Source | Description |
+|--------|-------------|
+| `oci` | OCI artifact containing an MCP tool server binary. Pulled via crane init container. |
+| `configMap` | Tool script mounted from a ConfigMap. |
+| `inline` | Embedded tool content (< 4KB, prototyping). Written to a ConfigMap by the operator. |
+| `mcpServer` | Operator-managed MCP server (Deployment + Service). Replaces the old MCPServer deploy mode. |
+| `mcpEndpoint` | External MCP endpoint. Health-checked by the operator. Replaces the old MCPServer external mode. |
+| `skill` | OCI-packaged skill markdown (system prompt extensions). Pulled via crane init container. |
+
+Agents reference AgentTool CRs via `spec.tools[]` bindings, which support per-agent permission overrides, direct tool promotion, and auto-context injection (skills).
 
 Agent pods include MCP gateway sidecars in proxy mode that enforce per-agent deny/allow permission rules on `tools/call` requests.
 
@@ -142,7 +151,6 @@ Catalog of external resources agents can bind to. Supports:
 | `gitlab-project` | baseURL, project, defaultBranch |
 | `gitlab-group` | baseURL, group, projects filter |
 | `git-repo` | url, branch |
-| `mcp-endpoint` | url, transport, headers |
 | `s3-bucket` | bucket, region, endpoint, prefix |
 | `documentation` | urls |
 
@@ -152,7 +160,7 @@ Resources are bound to agents via `spec.resourceBindings` with optional `readOnl
 
 The operator generates memory configuration for agents that specify `spec.memory`. The `resolveMemoryServerURL` function resolves the Engram server URL by:
 
-1. Looking up a matching MCPServer CR by `serverRef` name
+1. Looking up a matching AgentTool CR by `serverRef` name (mcpServer/mcpEndpoint sources)
 2. Falling back to in-cluster service DNS (`http://<serverRef>.<namespace>.svc:7437`)
 
 This configuration is injected into `/etc/operator/config.json` and consumed by the runtime's EngramClient.
@@ -171,16 +179,16 @@ spec:
 
 Four validating webhooks (non-mutating, `failurePolicy: Fail`):
 
-- **Agent** — validates mode, model format, provider references, tool/MCP/resource binding names, concurrency policy, cron syntax
+- **Agent** — validates mode, model format, provider references, tool binding names, concurrency policy, cron syntax
 - **Channel** — validates platform type, chat vs event mode, required fields per platform, template syntax
-- **MCPServer** — validates deploy vs external mode, required fields, port range
+- **AgentTool** — validates exactly one source block is set, source-specific required fields, deny/allow mode only on MCP sources
 - **AgentResource** — validates kind, required kind-specific fields, URL formats
 
 ## MCP Gateway
 
 Custom Go binary in `images/mcp-gateway/` with two modes:
 
-- **Spawn mode** — wraps an MCP server subprocess (stdio JSON-RPC) behind HTTP+SSE. Used by MCPServer Deployments.
+- **Spawn mode** — wraps an MCP server subprocess (stdio JSON-RPC) behind HTTP+SSE. Used by AgentTool mcpServer Deployments.
 - **Proxy mode** — sidecar in agent pods that forwards MCP requests to the upstream server while enforcing per-agent deny/allow permission rules on `tools/call` requests.
 
 ## Project Structure
@@ -188,9 +196,10 @@ Custom Go binary in `images/mcp-gateway/` with two modes:
 ```
 agentops-core/
   api/v1alpha1/              # CRD types + webhooks
-    agent_types.go           #   Agent, AgentRun
+    agent_types.go           #   Agent
+    agentrun_types.go        #   AgentRun
     channel_types.go         #   Channel
-    mcpserver_types.go       #   MCPServer
+    agenttool_types.go       #   AgentTool
     agentresource_types.go   #   AgentResource
     shared_types.go          #   MemorySpec, common types
     *_webhook.go             #   Validating webhooks
@@ -205,7 +214,7 @@ agentops-core/
     rbac/                    # Generated RBAC
     manager/                 # Operator Deployment
     webhook/                 # Webhook configuration
-    samples/                 # 17 example CRs
+    samples/                 # Example CRs
   hack/
     dev/                     # Dev pod manifest + init script
   Dockerfile                 # Multi-stage, distroless
@@ -260,8 +269,25 @@ spec:
     - read
     - edit
     - write
+  tools:
+    - name: gitlab-mcp
   memory:
     serverRef: engram
+```
+
+### Create a tool
+
+```yaml
+apiVersion: agents.agentops.io/v1alpha1
+kind: AgentTool
+metadata:
+  name: gitlab-mcp
+spec:
+  description: "GitLab MCP server"
+  category: scm
+  mcpServer:
+    image: ghcr.io/samyn92/mcp-gitlab:latest
+    port: 8080
 ```
 
 ### Trigger a run

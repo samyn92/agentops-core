@@ -110,10 +110,6 @@ func (r *AgentResourceReconciler) validateResource(res *agentsv1alpha1.AgentReso
 		if res.Spec.Git == nil {
 			return fmt.Errorf("git config is required for kind=%s", res.Spec.Kind)
 		}
-	case agentsv1alpha1.AgentResourceKindMCPEndpoint:
-		if res.Spec.MCP == nil {
-			return fmt.Errorf("mcp config is required for kind=%s", res.Spec.Kind)
-		}
 	case agentsv1alpha1.AgentResourceKindS3Bucket:
 		if res.Spec.S3 == nil {
 			return fmt.Errorf("s3 config is required for kind=%s", res.Spec.Kind)

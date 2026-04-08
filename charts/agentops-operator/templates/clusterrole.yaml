@@ -1,0 +1,115 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "agentops-operator.fullname" . }}-manager
+  labels:
+    {{- include "agentops-operator.labels" . | nindent 4 }}
+rules:
+  # Core resources
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - persistentvolumeclaims
+      - services
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/log
+    verbs:
+      - get
+      - list
+      - watch
+  # AgentOps CRDs
+  - apiGroups:
+      - agents.agentops.io
+    resources:
+      - agentresources
+      - agentruns
+      - agents
+      - agenttools
+      - channels
+      - mcpservers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - agents.agentops.io
+    resources:
+      - agentresources/finalizers
+      - agentruns/finalizers
+      - agents/finalizers
+      - agenttools/finalizers
+      - channels/finalizers
+      - mcpservers/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - agents.agentops.io
+    resources:
+      - agentresources/status
+      - agentruns/status
+      - agents/status
+      - agenttools/status
+      - channels/status
+      - mcpservers/status
+    verbs:
+      - get
+      - patch
+      - update
+  # Deployments
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  # Jobs
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  # Networking
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingresses
+      - networkpolicies
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+{{- end }}

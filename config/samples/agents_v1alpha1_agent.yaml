@@ -1,4 +1,4 @@
-# Default sample: Fantasy runtime daemon agent
+# Default sample: Fantasy runtime daemon agent with AgentTool bindings
 apiVersion: agents.agentops.io/v1alpha1
 kind: Agent
 metadata:
@@ -33,7 +33,8 @@ spec:
     You are a senior code reviewer. Analyze code changes for bugs,
     security issues, and style violations. Be concise and actionable.
 
-  mcpServers:
+  # Tool bindings reference AgentTool CRs by name
+  tools:
     - name: gitlab-mcp
       permissions:
         mode: allow
@@ -43,6 +44,8 @@ spec:
           - "create_merge_request_note"
       directTools:
         - create_merge_request_note
+    - name: code-review-skill
+      autoContext: true
 
   storage:
     size: 5Gi

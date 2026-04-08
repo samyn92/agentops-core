@@ -1,0 +1,41 @@
+apiVersion: v2
+name: agentops-operator
+description: Kubernetes operator for managing AI agents, channels, tools, and resources via the AgentOps platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.28.0-0"
+home: https://github.com/samyn92/agentops-core
+sources:
+  - https://github.com/samyn92/agentops-core
+maintainers:
+  - name: samyn92
+keywords:
+  - agentops
+  - operator
+  - ai-agents
+  - kubernetes
+  - controller
+annotations:
+  artifacthub.io/crds: |
+    - kind: Agent
+      version: v1alpha1
+      name: agents.agents.agentops.io
+      description: Defines an AI agent (daemon or task mode)
+    - kind: Channel
+      version: v1alpha1
+      name: channels.agents.agentops.io
+      description: External ingress bridge for agents
+    - kind: AgentRun
+      version: v1alpha1
+      name: agentruns.agents.agentops.io
+      description: Tracks one execution of an agent
+    - kind: AgentTool
+      version: v1alpha1
+      name: agenttools.agents.agentops.io
+      description: Unified tool catalog entry for agents
+    - kind: AgentResource
+      version: v1alpha1
+      name: agentresources.agents.agentops.io
+      description: Declarative external resource catalog
+  artifacthub.io/license: Apache-2.0

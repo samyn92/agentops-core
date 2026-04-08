@@ -47,7 +47,7 @@ type AgentReconciler struct {
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agents,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agents/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agents/finalizers,verbs=update
-// +kubebuilder:rbac:groups=agents.agentops.io,resources=mcpservers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=agents.agentops.io,resources=agenttools,verbs=get;list;watch
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agentresources,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
@@ -72,8 +72,8 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	log.Info("Reconciling Agent", "name", agent.Name, "mode", agent.Spec.Mode)
 
-	// Resolve referenced MCPServers
-	mcpServers, err := r.resolveMCPServers(ctx, agent)
+	// Resolve referenced AgentTools
+	agentTools, err := r.resolveAgentTools(ctx, agent)
 	if err != nil {
 		r.setAgentFailedStatus(agent, agentsv1alpha1.AgentPhaseFailed, err.Error())
 		if patchErr := patchStatus(ctx, r.Client, agent, statusPatch); patchErr != nil {
@@ -82,12 +82,12 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, nil
 	}
 
-	// Validate MCPServers are ready
-	if err := r.validateMCPServersReady(mcpServers); err != nil {
+	// Validate AgentTools are ready
+	if err := r.validateAgentToolsReady(agentTools); err != nil {
 		meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
-			Type:    agentsv1alpha1.AgentConditionMCPServersReady,
+			Type:    agentsv1alpha1.AgentConditionToolsReady,
 			Status:  metav1.ConditionFalse,
-			Reason:  "MCPServerNotReady",
+			Reason:  "AgentToolNotReady",
 			Message: err.Error(),
 		})
 		if patchErr := patchStatus(ctx, r.Client, agent, statusPatch); patchErr != nil {
@@ -96,12 +96,13 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
 
-	// Set MCPServersReady condition
-	if len(agent.Spec.MCPServers) > 0 {
+	// Set ToolsReady condition
+	if len(agent.Spec.Tools) > 0 {
 		meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
-			Type:   agentsv1alpha1.AgentConditionMCPServersReady,
-			Status: metav1.ConditionTrue,
-			Reason: "AllReady",
+			Type:    agentsv1alpha1.AgentConditionToolsReady,
+			Status:  metav1.ConditionTrue,
+			Reason:  "AllReady",
+			Message: fmt.Sprintf("%d tools bound", len(agentTools)),
 		})
 	}
 
@@ -153,9 +154,9 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	switch agent.Spec.Mode {
 	case agentsv1alpha1.AgentModeDaemon:
-		result, reconcileErr = r.reconcileDaemon(ctx, agent, mcpServers, agentResources)
+		result, reconcileErr = r.reconcileDaemon(ctx, agent, agentTools, agentResources)
 	case agentsv1alpha1.AgentModeTask:
-		result, reconcileErr = r.reconcileTask(ctx, agent, mcpServers, agentResources)
+		result, reconcileErr = r.reconcileTask(ctx, agent, agentTools, agentResources)
 	default:
 		return ctrl.Result{}, fmt.Errorf("unknown agent mode: %s", agent.Spec.Mode)
 	}
@@ -172,10 +173,20 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	return result, nil
 }
 
+// hasMCPSourceTools returns true if any of the resolved AgentTools have an MCP source.
+func hasMCPSourceTools(agentTools []agentsv1alpha1.AgentTool) bool {
+	for i := range agentTools {
+		if agentTools[i].IsMCPSource() {
+			return true
+		}
+	}
+	return false
+}
+
 // reconcileDaemon handles daemon mode: PVC -> ConfigMaps -> Deployment -> Service -> NetworkPolicy -> status.
 //
 //nolint:unparam // Result is always nil for now but will be used for requeue logic.
-func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1alpha1.Agent, mcpServers []agentsv1alpha1.MCPServer, agentResources []agentsv1alpha1.AgentResource) (ctrl.Result, error) {
+func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, agentResources []agentsv1alpha1.AgentResource) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	// 1. PVC
@@ -188,7 +199,7 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 	}
 
 	// 2. Operator extension ConfigMap
-	configMap, err := resources.BuildAgentConfigMap(agent, agentResources, mcpServers)
+	configMap, err := resources.BuildAgentConfigMap(agent, agentResources, agentTools)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -196,9 +207,9 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 		return ctrl.Result{}, err
 	}
 
-	// 3. Gateway ConfigMap (if MCP servers)
-	if len(agent.Spec.MCPServers) > 0 {
-		gwCM, err := resources.BuildGatewayConfigMap(agent)
+	// 3. Gateway ConfigMap (if MCP-source tools)
+	if hasMCPSourceTools(agentTools) {
+		gwCM, err := resources.BuildGatewayConfigMap(agent, agentTools)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -209,7 +220,7 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 		}
 
 		// 4. MCP ConfigMap (mcp.json for runtime MCP adapter)
-		mcpCM, err := resources.BuildMCPConfigMap(agent)
+		mcpCM, err := resources.BuildMCPConfigMap(agent, agentTools)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -221,7 +232,7 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 	}
 
 	// 5. Deployment
-	deployment := resources.BuildAgentDeployment(agent, mcpServers)
+	deployment := resources.BuildAgentDeployment(agent, agentTools)
 	if err := reconcileOwnedResource(ctx, r.Client, r.Scheme, agent, deployment); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -250,12 +261,12 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 	agent.Status.ServiceURL = resources.AgentServiceURL(agent)
 	agent.Status.ActiveModel = agent.Spec.Model
 
-	// Tools loaded condition
-	toolCount := agent.BuiltinToolCount() + len(agent.Spec.ToolRefs)
+	// Tools ready condition
+	toolCount := agent.BuiltinToolCount() + len(agent.Spec.Tools)
 	meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
-		Type:    agentsv1alpha1.AgentConditionToolsLoaded,
+		Type:    agentsv1alpha1.AgentConditionToolsReady,
 		Status:  metav1.ConditionTrue,
-		Reason:  "Loaded",
+		Reason:  "Ready",
 		Message: fmt.Sprintf("%d tool packages configured", toolCount),
 	})
 
@@ -289,11 +300,11 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 // reconcileTask handles task mode: ConfigMaps -> status (Ready).
 //
 //nolint:unparam // Result is always nil for now but will be used for requeue logic.
-func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alpha1.Agent, mcpServers []agentsv1alpha1.MCPServer, agentResources []agentsv1alpha1.AgentResource) (ctrl.Result, error) {
+func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, agentResources []agentsv1alpha1.AgentResource) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	// 1. Operator extension ConfigMap
-	configMap, err := resources.BuildAgentConfigMap(agent, agentResources, mcpServers)
+	configMap, err := resources.BuildAgentConfigMap(agent, agentResources, agentTools)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -301,9 +312,9 @@ func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alph
 		return ctrl.Result{}, err
 	}
 
-	// 2. Gateway ConfigMap (if MCP servers)
-	if len(agent.Spec.MCPServers) > 0 {
-		gwCM, err := resources.BuildGatewayConfigMap(agent)
+	// 2. Gateway ConfigMap (if MCP-source tools)
+	if hasMCPSourceTools(agentTools) {
+		gwCM, err := resources.BuildGatewayConfigMap(agent, agentTools)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -313,7 +324,7 @@ func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alph
 			}
 		}
 
-		mcpCM, err := resources.BuildMCPConfigMap(agent)
+		mcpCM, err := resources.BuildMCPConfigMap(agent, agentTools)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -328,11 +339,11 @@ func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alph
 	agent.Status.Phase = agentsv1alpha1.AgentPhaseReady
 	agent.Status.ActiveModel = agent.Spec.Model
 
-	toolCount := agent.BuiltinToolCount() + len(agent.Spec.ToolRefs)
+	toolCount := agent.BuiltinToolCount() + len(agent.Spec.Tools)
 	meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
-		Type:    agentsv1alpha1.AgentConditionToolsLoaded,
+		Type:    agentsv1alpha1.AgentConditionToolsReady,
 		Status:  metav1.ConditionTrue,
-		Reason:  "Loaded",
+		Reason:  "Ready",
 		Message: fmt.Sprintf("%d tool packages configured", toolCount),
 	})
 
@@ -346,17 +357,17 @@ func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alph
 	return ctrl.Result{}, nil
 }
 
-// resolveMCPServers fetches all MCPServer CRs referenced by the agent.
-func (r *AgentReconciler) resolveMCPServers(ctx context.Context, agent *agentsv1alpha1.Agent) ([]agentsv1alpha1.MCPServer, error) {
-	servers := make([]agentsv1alpha1.MCPServer, 0, len(agent.Spec.MCPServers))
-	for _, binding := range agent.Spec.MCPServers {
-		mcp := &agentsv1alpha1.MCPServer{}
-		if err := r.Get(ctx, types.NamespacedName{Name: binding.Name, Namespace: agent.Namespace}, mcp); err != nil {
-			return nil, fmt.Errorf("MCPServer %q not found: %w", binding.Name, err)
+// resolveAgentTools fetches all AgentTool CRs referenced by the agent.
+func (r *AgentReconciler) resolveAgentTools(ctx context.Context, agent *agentsv1alpha1.Agent) ([]agentsv1alpha1.AgentTool, error) {
+	tools := make([]agentsv1alpha1.AgentTool, 0, len(agent.Spec.Tools))
+	for _, binding := range agent.Spec.Tools {
+		tool := &agentsv1alpha1.AgentTool{}
+		if err := r.Get(ctx, types.NamespacedName{Name: binding.Name, Namespace: agent.Namespace}, tool); err != nil {
+			return nil, fmt.Errorf("AgentTool %q not found: %w", binding.Name, err)
 		}
-		servers = append(servers, *mcp)
+		tools = append(tools, *tool)
 	}
-	return servers, nil
+	return tools, nil
 }
 
 // resolveAgentResources fetches all AgentResource CRs referenced by the agent.
@@ -372,11 +383,11 @@ func (r *AgentReconciler) resolveAgentResources(ctx context.Context, agent *agen
 	return resources, nil
 }
 
-// validateMCPServersReady checks all referenced MCPServers are in Ready phase.
-func (r *AgentReconciler) validateMCPServersReady(servers []agentsv1alpha1.MCPServer) error {
-	for _, mcp := range servers {
-		if mcp.Status.Phase != agentsv1alpha1.MCPServerPhaseReady {
-			return fmt.Errorf("MCPServer %q is not Ready (phase: %s)", mcp.Name, mcp.Status.Phase)
+// validateAgentToolsReady checks all referenced AgentTools are in Ready phase.
+func (r *AgentReconciler) validateAgentToolsReady(tools []agentsv1alpha1.AgentTool) error {
+	for _, tool := range tools {
+		if tool.Status.Phase != agentsv1alpha1.AgentToolPhaseReady {
+			return fmt.Errorf("AgentTool %q is not Ready (phase: %s)", tool.Name, tool.Status.Phase)
 		}
 	}
 	return nil

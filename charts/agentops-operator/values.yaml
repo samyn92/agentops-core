@@ -1,0 +1,130 @@
+# -- Number of operator replicas
+replicaCount: 1
+
+image:
+  # -- Operator container image repository
+  repository: ghcr.io/samyn92/agentops-operator
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag (default is chart appVersion)
+  tag: ""
+  # -- Image digest (takes precedence over tag)
+  digest: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+# -- Override the chart name
+nameOverride: ""
+# -- Override the fullname
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Specifies whether a service account should be created
+  create: true
+  # -- Automatically mount service account token
+  automount: true
+  # -- Annotations to add to the service account
+  annotations: {}
+  # -- The name of the service account to use (defaults to fullname)
+  name: ""
+
+# -- Annotations to add to the operator pod
+podAnnotations: {}
+# -- Labels to add to the operator pod
+podLabels: {}
+
+podSecurityContext:
+  # -- Run pod as non-root
+  runAsNonRoot: true
+  # -- Seccomp profile type
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  # -- Disallow privilege escalation
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - "ALL"
+
+# -- Operator container resources
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# -- Node selector for the operator pod
+nodeSelector: {}
+# -- Tolerations for the operator pod
+tolerations: []
+# -- Affinity rules for the operator pod
+affinity: {}
+# -- Priority class name for the operator pod
+priorityClassName: ""
+
+# -- Termination grace period (seconds)
+terminationGracePeriodSeconds: 10
+
+leaderElection:
+  # -- Enable leader election for HA
+  enabled: true
+  # -- Leader election lock ID
+  id: "e58828d7.agentops.io"
+
+healthProbe:
+  # -- Bind address for health probes
+  bindAddress: ":8081"
+
+metrics:
+  # -- Enable metrics endpoint
+  enabled: true
+  # -- Bind address for the metrics endpoint
+  bindAddress: ":8443"
+  # -- Serve metrics over HTTPS
+  secure: true
+  service:
+    # -- Service type for metrics
+    type: ClusterIP
+    # -- Metrics service port
+    port: 8443
+    # -- Annotations for the metrics service
+    annotations: {}
+
+webhooks:
+  # -- Enable admission webhooks
+  enabled: false
+  # -- Directory containing TLS certificates for webhooks
+  certPath: ""
+  # -- Webhook certificate filename
+  certName: "tls.crt"
+  # -- Webhook key filename
+  certKey: "tls.key"
+
+# -- Enable HTTP/2 on the operator (disabled by default for security)
+enableHttp2: false
+
+# -- Extra arguments to pass to the operator binary
+extraArgs: []
+
+# -- Extra environment variables for the operator container
+env: []
+
+# -- Volume mounts for the operator container
+volumeMounts: []
+
+# -- Volumes for the operator pod
+volumes: []
+
+rbac:
+  # -- Create RBAC resources (ClusterRole, ClusterRoleBinding, Role, RoleBinding)
+  create: true
+
+# -- Install CRDs with the chart. CRDs are placed in the crds/ directory
+# and are installed automatically by Helm. Set to false to manage CRDs separately.
+installCRDs: true
+
+# -- Namespace where agent workloads are deployed (for reference only)
+agentNamespace: agents

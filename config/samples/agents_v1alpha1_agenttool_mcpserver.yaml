@@ -1,0 +1,42 @@
+# AgentTool: Operator-managed MCP server (deploy mode, replaces MCPServer CR)
+apiVersion: agents.agentops.io/v1alpha1
+kind: AgentTool
+metadata:
+  name: gitlab-mcp
+  labels:
+    app.kubernetes.io/name: agentops-core
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  description: "GitLab MCP server — merge requests, issues, pipelines"
+  category: scm
+
+  mcpServer:
+    image: ghcr.io/samyn92/mcp-gitlab:latest
+    port: 8080
+    command:
+      - node
+      - /app/server.js
+    env:
+      GITLAB_URL: "https://gitlab.com"
+    secrets:
+      - name: GITLAB_TOKEN
+        secretRef:
+          name: gitlab-credentials
+          key: token
+    healthCheck:
+      path: /health
+      intervalSeconds: 30
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 100m
+      limits:
+        memory: 256Mi
+
+  defaultPermissions:
+    mode: allow
+    rules:
+      - "get_merge_request"
+      - "get_merge_request_changes"
+      - "create_merge_request_note"
+      - "list_merge_requests"

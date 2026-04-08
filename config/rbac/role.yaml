@@ -33,6 +33,7 @@ rules:
   - agentresources
   - agentruns
   - agents
+  - agenttools
   - channels
   - mcpservers
   verbs:
@@ -49,6 +50,7 @@ rules:
   - agentresources/finalizers
   - agentruns/finalizers
   - agents/finalizers
+  - agenttools/finalizers
   - channels/finalizers
   - mcpservers/finalizers
   verbs:
@@ -59,6 +61,7 @@ rules:
   - agentresources/status
   - agentruns/status
   - agents/status
+  - agenttools/status
   - channels/status
   - mcpservers/status
   verbs:

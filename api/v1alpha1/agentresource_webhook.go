@@ -82,14 +82,13 @@ func (r *AgentResource) validate() (admission.Warnings, error) {
 func (r *AgentResource) validateKindConfig(specPath *field.Path) field.ErrorList {
 	var errs field.ErrorList
 
-	// Map of kind -> whether the corresponding config block is set
+	// Map of kind -> whether the corresponding config block is set (7 kinds)
 	configPresent := map[AgentResourceKind]bool{
 		AgentResourceKindGitHubRepo:    r.Spec.GitHub != nil,
 		AgentResourceKindGitHubOrg:     r.Spec.GitHubOrg != nil,
 		AgentResourceKindGitLabProject: r.Spec.GitLab != nil,
 		AgentResourceKindGitLabGroup:   r.Spec.GitLabGroup != nil,
 		AgentResourceKindGitRepo:       r.Spec.Git != nil,
-		AgentResourceKindMCPEndpoint:   r.Spec.MCP != nil,
 		AgentResourceKindS3Bucket:      r.Spec.S3 != nil,
 		AgentResourceKindDocumentation: r.Spec.Documentation != nil,
 	}
@@ -101,7 +100,6 @@ func (r *AgentResource) validateKindConfig(specPath *field.Path) field.ErrorList
 		AgentResourceKindGitLabProject: "gitlab",
 		AgentResourceKindGitLabGroup:   "gitlabGroup",
 		AgentResourceKindGitRepo:       "git",
-		AgentResourceKindMCPEndpoint:   "mcp",
 		AgentResourceKindS3Bucket:      "s3",
 		AgentResourceKindDocumentation: "documentation",
 	}

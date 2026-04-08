@@ -1,0 +1,16 @@
+# AgentTool: Inline tool content (< 4KB, prototyping only)
+apiVersion: agents.agentops.io/v1alpha1
+kind: AgentTool
+metadata:
+  name: date-tool
+  labels:
+    app.kubernetes.io/name: agentops-core
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  description: "Simple date/time tool for prototyping"
+  category: utility
+
+  inline:
+    content: |
+      #!/bin/sh
+      echo "{\"date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
