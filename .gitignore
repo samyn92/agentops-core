@@ -27,12 +27,6 @@ go.work.sum
 *.swo
 *~
 
-# Node.js / TypeScript (agent-runtime)
-node_modules/
-dist/
-images/agent-runtime/node_modules/
-images/agent-runtime/dist/
-
 # OS
 .DS_Store
 Thumbs.db
@@ -40,5 +34,3 @@ Thumbs.db
 # Env files (never commit secrets)
 .env
 .env.*
-images/agent-runtime-fantasy/agent-runtime
-images/agent-runtime-fantasy/agent-runtime-fantasy

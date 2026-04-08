@@ -93,6 +93,17 @@ type AgentSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	Model string `json:"model"`
 
+	// Preferred provider name for model resolution.
+	// When the model string does not include a provider prefix, this value
+	// is used to select which configured provider handles the request.
+	// +optional
+	PrimaryProvider string `json:"primaryProvider,omitempty"`
+
+	// Fast/cheap model used for auto-titling sessions (e.g. openai/gpt-4o-mini).
+	// Only relevant for daemon-mode agents. If unset, the primary model is used.
+	// +optional
+	TitleModel string `json:"titleModel,omitempty"`
+
 	// LLM providers with API key references. At least one required.
 	// +kubebuilder:validation:MinItems=1
 	Providers []ProviderRef `json:"providers"`
@@ -122,6 +133,16 @@ type AgentSpec struct {
 	// Tools are packaged as MCP servers and work with the Fantasy runtime.
 	// +optional
 	ToolRefs []ResourceRef `json:"toolRefs,omitempty"`
+
+	// Tools that require user approval before execution (permission gate).
+	// Each entry is a tool name. If empty, all tools run automatically.
+	// +optional
+	PermissionTools []string `json:"permissionTools,omitempty"`
+
+	// Enable the built-in "question" tool that lets the agent ask the user
+	// interactive questions during execution.
+	// +optional
+	EnableQuestionTool bool `json:"enableQuestionTool,omitempty"`
 
 	// ====================================================================
 	// ENVIRONMENT

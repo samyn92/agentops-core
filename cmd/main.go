@@ -60,6 +60,7 @@ func main() {
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
 	var enableLeaderElection bool
+	var enableWebhooks bool
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
@@ -70,6 +71,8 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.BoolVar(&enableWebhooks, "enable-webhooks", false,
+		"Enable admission webhooks for CRD validation. Requires cert-manager or manually provided TLS certificates.")
 	flag.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
 	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
@@ -110,7 +113,7 @@ func main() {
 	// Initial webhook TLS options
 	webhookTLSOpts := tlsOpts
 
-	if len(webhookCertPath) > 0 {
+	if enableWebhooks && len(webhookCertPath) > 0 {
 		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
 			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
 
@@ -129,9 +132,13 @@ func main() {
 		})
 	}
 
-	webhookServer := webhook.NewServer(webhook.Options{
-		TLSOpts: webhookTLSOpts,
-	})
+	// Only create webhook server when webhooks are enabled
+	var webhookServer webhook.Server
+	if enableWebhooks {
+		webhookServer = webhook.NewServer(webhook.Options{
+			TLSOpts: webhookTLSOpts,
+		})
+	}
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:
@@ -154,11 +161,6 @@ func main() {
 	// If the certificate is not specified, controller-runtime will automatically
 	// generate self-signed certificates for the metrics server. While convenient for development and testing,
 	// this setup is not recommended for production.
-	//
-	// TODO(user): If you enable certManager, uncomment the following lines:
-	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use certificates
-	// managed by cert-manager for the metrics server.
-	// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml for TLS certification.
 	if len(metricsCertPath) > 0 {
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
@@ -178,10 +180,9 @@ func main() {
 		})
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mgrOptions := ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
-		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "e58828d7.agentops.io",
@@ -196,7 +197,13 @@ func main() {
 		// if you are doing or is intended to do any operation such as perform cleanups
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
-	})
+	}
+
+	if enableWebhooks {
+		mgrOptions.WebhookServer = webhookServer
+	}
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOptions)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -231,6 +238,23 @@ func main() {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	// Register admission webhooks when enabled
+	if enableWebhooks {
+		if err := (&agentsv1alpha1.Agent{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Agent")
+			os.Exit(1)
+		}
+		if err := (&agentsv1alpha1.Channel{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Channel")
+			os.Exit(1)
+		}
+		if err := (&agentsv1alpha1.MCPServer{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "MCPServer")
+			os.Exit(1)
+		}
+		setupLog.Info("admission webhooks enabled")
+	}
 
 	if metricsCertWatcher != nil {
 		setupLog.Info("Adding metrics certificate watcher to manager")

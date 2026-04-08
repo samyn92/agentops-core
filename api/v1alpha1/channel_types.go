@@ -43,11 +43,6 @@ const (
 	ChannelPhaseFailed  ChannelPhase = "Failed"
 )
 
-// IsChatType returns true if this channel type is a chat platform (not event-driven).
-func (t ChannelType) IsChatType() bool {
-	return t == ChannelTypeTelegram || t == ChannelTypeSlack || t == ChannelTypeDiscord
-}
-
 // IsEventType returns true if this channel type is event-driven (webhook/forge).
 func (t ChannelType) IsEventType() bool {
 	return t == ChannelTypeGitLab || t == ChannelTypeGitHub || t == ChannelTypeWebhook

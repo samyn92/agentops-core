@@ -234,6 +234,11 @@ func (in *AgentSpec) DeepCopyInto(out *AgentSpec) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.PermissionTools != nil {
+		in, out := &in.PermissionTools, &out.PermissionTools
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Env != nil {
 		in, out := &in.Env, &out.Env
 		*out = make(map[string]string, len(*in))

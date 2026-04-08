@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"strings"
 
 	"github.com/samyn92/agentops-core/images/mcp-gateway/internal/permissions"
 )
@@ -167,13 +166,4 @@ func (s *Server) checkToolCall(w http.ResponseWriter, req *jsonRPCRequest) bool 
 		"tool", params.Name,
 	)
 	return true
-}
-
-// StripPrefix returns an HTTP handler that strips a URL path prefix.
-// Used when the gateway is mounted at a subpath.
-func StripPrefix(prefix string, handler http.Handler) http.Handler {
-	if prefix == "" || prefix == "/" {
-		return handler
-	}
-	return http.StripPrefix(strings.TrimRight(prefix, "/"), handler)
 }

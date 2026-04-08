@@ -21,9 +21,6 @@ package resources
 import (
 	"fmt"
 	"strings"
-
-	agentsv1alpha1 "github.com/samyn92/agentops-core/api/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -45,9 +42,6 @@ const (
 
 	// CraneImage is the OCI puller used in init containers.
 	CraneImage = "gcr.io/go-containerregistry/crane:debug"
-
-	// DefaultFantasyImage is the default image for the Fantasy runtime.
-	DefaultFantasyImage = "ghcr.io/samyn92/agent-runtime-fantasy:latest"
 
 	// MCPGatewayImage is the MCP protocol gateway image (spawn + proxy modes).
 	MCPGatewayImage = "ghcr.io/samyn92/mcp-gateway:latest"
@@ -87,26 +81,6 @@ func ObjectName(agentName, suffix string) string {
 // MCPServerObjectName returns the conventional name for MCPServer sub-resources.
 func MCPServerObjectName(mcpName string) string {
 	return fmt.Sprintf("mcp-%s", mcpName)
-}
-
-// OwnerRef builds an OwnerReference for an Agent CR.
-func AgentOwnerRef(agent *agentsv1alpha1.Agent) metav1.OwnerReference {
-	return *metav1.NewControllerRef(agent, agentsv1alpha1.GroupVersion.WithKind("Agent"))
-}
-
-// AgentRunOwnerRef builds an OwnerReference for an AgentRun CR.
-func AgentRunOwnerRef(run *agentsv1alpha1.AgentRun) metav1.OwnerReference {
-	return *metav1.NewControllerRef(run, agentsv1alpha1.GroupVersion.WithKind("AgentRun"))
-}
-
-// ChannelOwnerRef builds an OwnerReference for a Channel CR.
-func ChannelOwnerRef(ch *agentsv1alpha1.Channel) metav1.OwnerReference {
-	return *metav1.NewControllerRef(ch, agentsv1alpha1.GroupVersion.WithKind("Channel"))
-}
-
-// MCPServerOwnerRef builds an OwnerReference for an MCPServer CR.
-func MCPServerOwnerRef(mcp *agentsv1alpha1.MCPServer) metav1.OwnerReference {
-	return *metav1.NewControllerRef(mcp, agentsv1alpha1.GroupVersion.WithKind("MCPServer"))
 }
 
 // joinCommand joins command parts into a single space-separated string.

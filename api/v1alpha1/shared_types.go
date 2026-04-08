@@ -16,10 +16,6 @@ limitations under the License.
 
 package v1alpha1
 
-import (
-	corev1 "k8s.io/api/core/v1"
-)
-
 // -------------------------------------------------------------------
 // Secret references
 // -------------------------------------------------------------------
@@ -306,10 +302,3 @@ type MCPOAuthConfig struct {
 	// Secret containing the OAuth client secret.
 	ClientSecretSecret SecretKeyRef `json:"clientSecretSecret"`
 }
-
-// -------------------------------------------------------------------
-// Common resource requirements (re-export for convenience)
-// -------------------------------------------------------------------
-
-// ResourceRequirements is an alias for corev1.ResourceRequirements.
-type ResourceRequirements = corev1.ResourceRequirements

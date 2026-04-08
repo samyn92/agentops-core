@@ -62,19 +62,23 @@ type ContextEntry struct {
 
 // AgentConfig is the JSON structure mounted at /etc/operator/config.json for the Fantasy runtime.
 type AgentConfig struct {
-	Runtime         string          `json:"runtime"`
-	Providers       []ProviderEntry `json:"providers"`
-	PrimaryModel    string          `json:"primaryModel"`
-	FallbackModels  []string        `json:"fallbackModels,omitempty"`
-	SystemPrompt    string          `json:"systemPrompt,omitempty"`
-	BuiltinTools    []string        `json:"builtinTools,omitempty"`
-	Tools           []ToolEntry     `json:"tools"`
-	MCPServers      []MCPEntry      `json:"mcpServers,omitempty"`
-	ToolHooks       *ToolHooksEntry `json:"toolHooks,omitempty"`
-	ContextFiles    []ContextEntry  `json:"contextFiles,omitempty"`
-	Temperature     *float64        `json:"temperature,omitempty"`
-	MaxOutputTokens *int64          `json:"maxOutputTokens,omitempty"`
-	MaxSteps        *int            `json:"maxSteps,omitempty"`
+	Runtime            string          `json:"runtime"`
+	Providers          []ProviderEntry `json:"providers"`
+	PrimaryProvider    string          `json:"primaryProvider,omitempty"`
+	PrimaryModel       string          `json:"primaryModel"`
+	FallbackModels     []string        `json:"fallbackModels,omitempty"`
+	TitleModel         string          `json:"titleModel,omitempty"`
+	SystemPrompt       string          `json:"systemPrompt,omitempty"`
+	BuiltinTools       []string        `json:"builtinTools,omitempty"`
+	Tools              []ToolEntry     `json:"tools"`
+	MCPServers         []MCPEntry      `json:"mcpServers,omitempty"`
+	ToolHooks          *ToolHooksEntry `json:"toolHooks,omitempty"`
+	ContextFiles       []ContextEntry  `json:"contextFiles,omitempty"`
+	Temperature        *float64        `json:"temperature,omitempty"`
+	MaxOutputTokens    *int64          `json:"maxOutputTokens,omitempty"`
+	MaxSteps           *int            `json:"maxSteps,omitempty"`
+	PermissionTools    []string        `json:"permissionTools,omitempty"`
+	EnableQuestionTool bool            `json:"enableQuestionTool,omitempty"`
 }
 
 // ====================================================================
@@ -84,13 +88,17 @@ type AgentConfig struct {
 // BuildAgentConfigMap generates the operator extension ConfigMap from an Agent spec.
 func BuildAgentConfigMap(agent *agentsv1alpha1.Agent) (*corev1.ConfigMap, error) {
 	config := AgentConfig{
-		Runtime:         "fantasy",
-		PrimaryModel:    agent.Spec.Model,
-		SystemPrompt:    agent.Spec.SystemPrompt,
-		BuiltinTools:    agent.Spec.BuiltinTools,
-		Temperature:     agent.Spec.Temperature,
-		MaxOutputTokens: agent.Spec.MaxOutputTokens,
-		MaxSteps:        agent.Spec.MaxSteps,
+		Runtime:            "fantasy",
+		PrimaryModel:       agent.Spec.Model,
+		PrimaryProvider:    agent.Spec.PrimaryProvider,
+		TitleModel:         agent.Spec.TitleModel,
+		SystemPrompt:       agent.Spec.SystemPrompt,
+		BuiltinTools:       agent.Spec.BuiltinTools,
+		Temperature:        agent.Spec.Temperature,
+		MaxOutputTokens:    agent.Spec.MaxOutputTokens,
+		MaxSteps:           agent.Spec.MaxSteps,
+		PermissionTools:    agent.Spec.PermissionTools,
+		EnableQuestionTool: agent.Spec.EnableQuestionTool,
 	}
 
 	// Tools (toolRefs — loaded as MCP servers by Fantasy runtime)

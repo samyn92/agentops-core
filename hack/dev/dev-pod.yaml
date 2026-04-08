@@ -79,7 +79,7 @@ spec:
       serviceAccountName: agentops-dev
       containers:
         - name: dev
-          image: golang:1.25
+          image: golang:1.26
           command: ["/bin/bash", "/workspace/hack/dev/init.sh"]
           workingDir: /workspace
           env:
@@ -102,7 +102,6 @@ spec:
         - name: workspace
           hostPath:
             path: /home/samy/dev/github.com/samyn92/agentops-core
-            type: Directory
         - name: go-cache
           emptyDir:
             sizeLimit: 2Gi

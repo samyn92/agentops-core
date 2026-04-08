@@ -14,7 +14,7 @@ kubectl apply -f hack/dev/dev-pod.yaml
 
 This creates:
 - ServiceAccount + ClusterRole with full operator permissions
-- Deployment running `golang:1.25` with an init script that installs Node 22, kubectl, vim, jq, git
+- Deployment running `golang:1.26` with an init script that installs kubectl, vim, jq, git
 - hostPath mount of this repo into `/workspace`
 
 ### Workflow
@@ -61,22 +61,21 @@ kubectl config use-context k3s
 ### Runtime
 
 The operator uses the **Charm Fantasy SDK (Go)** as its sole agent runtime.
-The runtime source lives in `images/agent-runtime-fantasy/` and is also developed
-as a standalone repo at `agentops-runtime-fantasy`.
+The runtime is developed in the standalone repo `agentops-runtime-fantasy`.
 
 ### Images
 
 | Image | Source | Purpose |
 |-------|--------|---------|
 | `ghcr.io/samyn92/agentops-operator` | `Dockerfile` (repo root) | Kubernetes operator |
-| `ghcr.io/samyn92/agent-runtime-fantasy` | `images/agent-runtime-fantasy/` | Fantasy SDK agent runtime |
+| `ghcr.io/samyn92/agent-runtime-fantasy` | `agentops-runtime-fantasy` repo | Fantasy SDK agent runtime |
 | `ghcr.io/samyn92/mcp-gateway` | `images/mcp-gateway/` | MCP protocol gateway (spawn + proxy modes) |
 
 ### Related Repos
 
 | Repo | Purpose |
 |------|---------|
-| `agentops-runtime-fantasy` | Standalone Fantasy agent runtime (synced into images/) |
+| `agentops-runtime-fantasy` | Fantasy agent runtime (Go, Charm Fantasy SDK) |
 | `agent-channels` | Channel bridge images (gitlab, webhook, etc.) |
 | `agent-tools` | OCI tool/agent packaging CLI + tool packages |
 | `agent-console` | Web console |
