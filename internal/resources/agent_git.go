@@ -24,10 +24,13 @@ import (
 )
 
 const (
-	// OCI images for the git MCP tool servers.
-	GitToolImage    = "ghcr.io/samyn92/agent-tools/git:latest"
-	GitHubToolImage = "ghcr.io/samyn92/agent-tools/github:latest"
-	GitLabToolImage = "ghcr.io/samyn92/agent-tools/gitlab:latest"
+	// Container images for the git MCP tool server sidecars.
+	// These are real container images (with rootfs, PATH, etc.) built from
+	// each server's Dockerfile — NOT the OCI artifacts pushed by `agent-tools push`.
+	// The "-server" suffix distinguishes container images from OCI artifacts.
+	GitToolImage    = "ghcr.io/samyn92/agent-tools/git-server:latest"
+	GitHubToolImage = "ghcr.io/samyn92/agent-tools/github-server:latest"
+	GitLabToolImage = "ghcr.io/samyn92/agent-tools/gitlab-server:latest"
 )
 
 // GitWorkspaceConfig holds resolved git workspace configuration for a task agent run.
