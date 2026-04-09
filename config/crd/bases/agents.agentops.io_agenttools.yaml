@@ -384,6 +384,14 @@ spec:
                 required:
                 - ref
                 type: object
+              uiHint:
+                description: |-
+                  UIHint tells the console which branded card renderer to use for this tool's
+                  call results. When set, this value is passed through to every FEP tool_result
+                  event as metadata.ui, overriding heuristic detection.
+                  Known values: "kubernetes-resources", "helm-release", "terminal", "code", "diff",
+                  "file-tree", "search-results", "file-created", "web-fetch", "agent-run".
+                type: string
             type: object
           status:
             description: AgentToolStatus defines the observed state of AgentTool.
@@ -455,6 +463,29 @@ spec:
                 description: Source type detected from spec (oci, configMap, inline,
                   mcpServer, mcpEndpoint, skill).
                 type: string
+              tools:
+                description: |-
+                  Discovered MCP tools exposed by this tool server.
+                  Populated by the operator at reconcile time via MCP ListTools introspection.
+                items:
+                  description: |-
+                    DiscoveredTool describes a single MCP tool discovered from a tool server.
+                    Populated by the operator during reconciliation via ListTools introspection.
+                  properties:
+                    description:
+                      description: Tool description from the MCP server.
+                      type: string
+                    inputSchema:
+                      description: Input schema as a JSON string (the MCP tool's inputSchema
+                        object).
+                      type: string
+                    name:
+                      description: MCP tool name (e.g. "kube_find", "kube_health").
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
             type: object
         type: object
     served: true

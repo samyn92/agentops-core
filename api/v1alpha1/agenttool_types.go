@@ -47,6 +47,14 @@ type AgentToolSpec struct {
 	// +optional
 	Category string `json:"category,omitempty"`
 
+	// UIHint tells the console which branded card renderer to use for this tool's
+	// call results. When set, this value is passed through to every FEP tool_result
+	// event as metadata.ui, overriding heuristic detection.
+	// Known values: "kubernetes-resources", "helm-release", "terminal", "code", "diff",
+	// "file-tree", "search-results", "file-created", "web-fetch", "agent-run".
+	// +optional
+	UIHint string `json:"uiHint,omitempty"`
+
 	// ================================================================
 	// SOURCE — exactly one must be set
 	// ================================================================
@@ -221,9 +229,29 @@ type AgentToolStatus struct {
 	// +optional
 	ServiceURL string `json:"serviceURL,omitempty"`
 
+	// Discovered MCP tools exposed by this tool server.
+	// Populated by the operator at reconcile time via MCP ListTools introspection.
+	// +optional
+	Tools []DiscoveredTool `json:"tools,omitempty"`
+
 	// Standard conditions.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// DiscoveredTool describes a single MCP tool discovered from a tool server.
+// Populated by the operator during reconciliation via ListTools introspection.
+type DiscoveredTool struct {
+	// MCP tool name (e.g. "kube_find", "kube_health").
+	Name string `json:"name"`
+
+	// Tool description from the MCP server.
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// Input schema as a JSON string (the MCP tool's inputSchema object).
+	// +optional
+	InputSchema string `json:"inputSchema,omitempty"`
 }
 
 // Condition types for AgentTool.

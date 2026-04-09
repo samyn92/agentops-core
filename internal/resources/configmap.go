@@ -37,13 +37,17 @@ import (
 //
 // Adapted from the canonical Engram Memory Protocol:
 // https://github.com/Gentleman-Programming/engram
-const engramMemoryProtocol = `
+// engramMemoryProtocolHeader is always included when memory is enabled.
+const engramMemoryProtocolHeader = `
 
 ## Engram Persistent Memory — Protocol
 
 You have access to Engram, a persistent memory system that survives across
-pod restarts and conversation resets. Use it proactively.
+pod restarts and conversation resets.
+`
 
+// engramMemoryProtocolSave is included when autoSave is enabled.
+const engramMemoryProtocolSave = `
 ### WHEN TO SAVE (mandatory — not optional)
 
 Call mem_save IMMEDIATELY after any of these:
@@ -67,26 +71,77 @@ Format for mem_save:
 This is NOT optional. If you complete significant work and don't save it,
 the next conversation starts blind.
 
+After completing any meaningful task, call mem_save before moving on.
+Save early, save often — small focused memories are better than one giant dump at the end.
+`
+
+// engramMemoryProtocolSaveDisabled is included when autoSave is disabled.
+const engramMemoryProtocolSaveDisabled = `
+### SAVING MEMORIES
+
+You must NOT call mem_save autonomously. Memory saving is managed by the user
+through the console UI. Focus on the task at hand — the user will decide what
+knowledge is worth persisting.
+`
+
+// engramMemoryProtocolSearch is included when autoSearch is enabled.
+const engramMemoryProtocolSearch = `
 ### WHEN TO SEARCH MEMORY
 
-Search memory PROACTIVELY when:
-- Starting work on something that might have been done before
-- The user mentions a topic you have no context on
-- The user's FIRST message references the project, a feature, or a problem
-- The user asks to recall something — any variation of "remember", "recall",
-  "what did we do", "how did we solve", or references to past work
+Search memory AUTOMATICALLY (no need to ask) when the user references past work:
+- Any variation of "remember", "recall", "what did we do", "how did we solve",
+  "last time", "that bug", "we had", "before", or references to previous work
+- Call mem_search with relevant keywords (FTS5 full-text search)
 
-Search flow:
-1. Call mem_context first — retrieves recent session history (fast, cheap)
-2. If not found, call mem_search with relevant keywords (FTS5 full-text search)
+ASK BEFORE SEARCHING when it is your own idea during troubleshooting:
+- You encounter an error or unexpected behavior and think prior knowledge may help
+- Say something like: "Should I check if we've documented something about this?"
+- Only search after the user confirms
 
-### PROACTIVE BEHAVIOR
+DO NOT search memory on every conversation start. Do not call mem_context or
+mem_search unless there is a specific reason. Casual greetings and simple
+questions do not need memory lookups.
 
-- At the START of every conversation, call mem_context to check what was done recently
-- After completing any meaningful task, call mem_save before moving on
-- When the user asks "what have we done" or similar, search memory first — don't guess
-- Save early, save often — small focused memories are better than one giant dump at the end
+When the user asks "what have we done" or similar, search memory first — don't guess.
 `
+
+// engramMemoryProtocolSearchDisabled is included when autoSearch is disabled.
+const engramMemoryProtocolSearchDisabled = `
+### SEARCHING MEMORY
+
+You must NOT call mem_search or mem_context autonomously. Memory search is
+managed by the user through the console UI. If you think past knowledge might
+be relevant, tell the user — they can look it up and share it with you.
+`
+
+// buildMemoryProtocol assembles the memory protocol based on the agent's
+// autoSave and autoSearch settings.
+func buildMemoryProtocol(memory *agentsv1alpha1.MemorySpec) string {
+	autoSave := true
+	if memory.AutoSave != nil {
+		autoSave = *memory.AutoSave
+	}
+	autoSearch := true
+	if memory.AutoSearch != nil {
+		autoSearch = *memory.AutoSearch
+	}
+
+	protocol := engramMemoryProtocolHeader
+
+	if autoSave {
+		protocol += engramMemoryProtocolSave
+	} else {
+		protocol += engramMemoryProtocolSaveDisabled
+	}
+
+	if autoSearch {
+		protocol += engramMemoryProtocolSearch
+	} else {
+		protocol += engramMemoryProtocolSearchDisabled
+	}
+
+	return protocol
+}
 
 // ====================================================================
 // Config types
@@ -94,8 +149,11 @@ Search flow:
 
 // ToolEntry describes a tool package path.
 type ToolEntry struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Description string `json:"description,omitempty"`
+	Category    string `json:"category,omitempty"`
+	UIHint      string `json:"uiHint,omitempty"`
 }
 
 // MCPEntry describes an MCP server binding.
@@ -103,6 +161,9 @@ type MCPEntry struct {
 	Name        string   `json:"name"`
 	Port        int      `json:"port"`
 	DirectTools []string `json:"directTools,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Category    string   `json:"category,omitempty"`
+	UIHint      string   `json:"uiHint,omitempty"`
 }
 
 // ProviderEntry describes a configured provider.
@@ -196,6 +257,8 @@ type MemoryConfigEntry struct {
 	ContextLimit  int    `json:"contextLimit"`
 	WindowSize    int    `json:"windowSize"`
 	AutoSummarize bool   `json:"autoSummarize"`
+	AutoSave      bool   `json:"autoSave"`
+	AutoSearch    bool   `json:"autoSearch"`
 }
 
 // AgentConfig is the JSON structure mounted at /etc/operator/config.json for the Fantasy runtime.
@@ -263,17 +326,28 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, agentResources []agentsv1a
 			if agent.Spec.Memory.AutoSummarize != nil {
 				autoSummarize = *agent.Spec.Memory.AutoSummarize
 			}
+			autoSave := true
+			if agent.Spec.Memory.AutoSave != nil {
+				autoSave = *agent.Spec.Memory.AutoSave
+			}
+			autoSearch := true
+			if agent.Spec.Memory.AutoSearch != nil {
+				autoSearch = *agent.Spec.Memory.AutoSearch
+			}
 			config.Memory = &MemoryConfigEntry{
 				ServerURL:     serverURL,
 				Project:       project,
 				ContextLimit:  contextLimit,
 				WindowSize:    windowSize,
 				AutoSummarize: autoSummarize,
+				AutoSave:      autoSave,
+				AutoSearch:    autoSearch,
 			}
 
 			// Append the Engram Memory Protocol to the system prompt
 			// so the agent knows when to use mem_save/mem_search/mem_context.
-			config.SystemPrompt = strings.TrimRight(config.SystemPrompt, "\n ") + engramMemoryProtocol
+			// The protocol sections are conditional based on autoSave/autoSearch.
+			config.SystemPrompt = strings.TrimRight(config.SystemPrompt, "\n ") + buildMemoryProtocol(agent.Spec.Memory)
 		}
 	}
 
@@ -295,7 +369,13 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, agentResources []agentsv1a
 		case tool.Spec.OCI != nil, tool.Spec.ConfigMap != nil, tool.Spec.Inline != nil:
 			// OCI, configMap, inline → ToolEntry
 			path := fmt.Sprintf("%s/%s", MountTools, binding.Name)
-			config.Tools = append(config.Tools, ToolEntry{Name: binding.Name, Path: path})
+			config.Tools = append(config.Tools, ToolEntry{
+				Name:        binding.Name,
+				Path:        path,
+				Description: tool.Spec.Description,
+				Category:    tool.Spec.Category,
+				UIHint:      tool.Spec.UIHint,
+			})
 
 		case tool.IsMCPSource():
 			// mcpServer, mcpEndpoint → MCPEntry (gateway port assignment by index)
@@ -304,6 +384,9 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, agentResources []agentsv1a
 				Name:        binding.Name,
 				Port:        port,
 				DirectTools: binding.DirectTools,
+				Description: tool.Spec.Description,
+				Category:    tool.Spec.Category,
+				UIHint:      tool.Spec.UIHint,
 			})
 			mcpIndex++
 
