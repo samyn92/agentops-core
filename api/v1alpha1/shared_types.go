@@ -320,6 +320,21 @@ type MemorySpec struct {
 	// +optional
 	// +kubebuilder:default=true
 	AutoSummarize *bool `json:"autoSummarize,omitempty"`
+
+	// Allow the agent to autonomously save memories via mem_save after
+	// completing meaningful work. When false, only the user can create
+	// memories through the console UI.
+	// +optional
+	// +kubebuilder:default=true
+	AutoSave *bool `json:"autoSave,omitempty"`
+
+	// Allow the agent to autonomously search memories via mem_search
+	// when the user references past work. When false, the agent never
+	// searches memory on its own — the user browses/searches via the
+	// console Memory panel.
+	// +optional
+	// +kubebuilder:default=true
+	AutoSearch *bool `json:"autoSearch,omitempty"`
 }
 
 // -------------------------------------------------------------------
