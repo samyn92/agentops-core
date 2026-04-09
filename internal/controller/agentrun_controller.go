@@ -264,8 +264,26 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 	err := r.Get(ctx, types.NamespacedName{Name: run.Name, Namespace: run.Namespace}, existingJob)
 
 	if apierrors.IsNotFound(err) {
+		// Resolve git workspace config if spec.git is set
+		var gitCfg *resources.GitWorkspaceConfig
+		if run.Spec.Git != nil {
+			agentResource := &agentsv1alpha1.AgentResource{}
+			if err := r.Get(ctx, types.NamespacedName{Name: run.Spec.Git.ResourceRef, Namespace: run.Namespace}, agentResource); err != nil {
+				log.Error(err, "Failed to resolve AgentResource for git workspace", "resourceRef", run.Spec.Git.ResourceRef)
+				r.setRunFailedStatus(run, fmt.Sprintf("AgentResource %q not found: %v", run.Spec.Git.ResourceRef, err))
+				return ctrl.Result{}, nil
+			}
+			resolved, err := resources.ResolveGitWorkspace(run.Spec.Git, agentResource)
+			if err != nil {
+				log.Error(err, "Failed to resolve git workspace config")
+				r.setRunFailedStatus(run, fmt.Sprintf("git workspace config error: %v", err))
+				return ctrl.Result{}, nil
+			}
+			gitCfg = resolved
+		}
+
 		// Create Job
-		job := resources.BuildAgentRunJob(run, agent, agentTools)
+		job := resources.BuildAgentRunJob(run, agent, agentTools, gitCfg)
 		if err := controllerutil.SetControllerReference(run, job, r.Scheme); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -306,6 +324,15 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 			run.Status.Model = result.Model
 		}
 		run.Status.ToolCalls = result.Steps
+		if result.PullRequestURL != "" {
+			run.Status.PullRequestURL = result.PullRequestURL
+		}
+		if result.Commits > 0 {
+			run.Status.Commits = result.Commits
+		}
+		if result.Branch != "" {
+			run.Status.Branch = result.Branch
+		}
 		meta.SetStatusCondition(&run.Status.Conditions, metav1.Condition{
 			Type:   agentsv1alpha1.AgentRunConditionComplete,
 			Status: metav1.ConditionTrue,
@@ -521,11 +548,14 @@ func (r *AgentRunReconciler) getJobOutput(ctx context.Context, job *batchv1.Job)
 
 // taskRunOutput matches the JSON the task runtime writes to /dev/termination-log.
 type taskRunOutput struct {
-	Output  string `json:"output"`
-	Steps   int    `json:"steps"`
-	Model   string `json:"model"`
-	Success bool   `json:"success"`
-	Error   string `json:"error"`
+	Output         string `json:"output"`
+	Steps          int    `json:"steps"`
+	Model          string `json:"model"`
+	Success        bool   `json:"success"`
+	Error          string `json:"error"`
+	PullRequestURL string `json:"pullRequestURL,omitempty"`
+	Commits        int    `json:"commits,omitempty"`
+	Branch         string `json:"branch,omitempty"`
 }
 
 // setRunFailedStatus sets the AgentRun status to Failed. Caller must patch status.

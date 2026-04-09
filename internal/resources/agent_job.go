@@ -24,14 +24,15 @@ import (
 )
 
 // BuildAgentRunJob creates a Job for a task-mode AgentRun.
-func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool) *batchv1.Job {
+// gitCfg is optional — when non-nil, git workspace env vars and MCP tool sidecars are injected.
+func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, gitCfg *GitWorkspaceConfig) *batchv1.Job {
 	labels := CommonLabels(agent.Name, "task-run")
 	labels["agents.agentops.io/run"] = run.Name
 
 	// Build the pod spec in task mode
 	podSpec := buildAgentPodSpec(agent, agentTools, true)
 
-	// Inject AGENT_PROMPT into the main container
+	// Inject AGENT_PROMPT and AGENT_RUN_NAME into the main container
 	for i := range podSpec.Containers {
 		if podSpec.Containers[i].Name == "agent-runtime" {
 			podSpec.Containers[i].Env = append(podSpec.Containers[i].Env, corev1.EnvVar{
@@ -42,8 +43,27 @@ func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent,
 				Name:  "AGENT_RUN_NAME",
 				Value: run.Name,
 			})
+
+			// Inject git workspace env vars
+			if gitCfg != nil {
+				podSpec.Containers[i].Env = append(podSpec.Containers[i].Env, gitCfg.GitEnvVars()...)
+			}
 			break
 		}
+	}
+
+	// Inject git MCP tool sidecars, init containers, and volumes
+	if gitCfg != nil {
+		// Count existing MCP sidecars to offset port allocation
+		mcpCount := 0
+		for _, c := range podSpec.Containers {
+			if c.Name != "agent-runtime" {
+				mcpCount++
+			}
+		}
+		podSpec.Containers = append(podSpec.Containers, gitCfg.GitToolSidecars(mcpCount)...)
+		podSpec.InitContainers = append(podSpec.InitContainers, gitCfg.GitToolInitContainers()...)
+		podSpec.Volumes = append(podSpec.Volumes, gitCfg.GitToolVolumes()...)
 	}
 
 	// Never restart task pods (they succeed or fail)

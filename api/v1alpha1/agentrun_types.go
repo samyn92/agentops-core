@@ -60,6 +60,29 @@ type AgentRunSpec struct {
 	// Name of the source (Channel name, agent name, or "schedule").
 	// +optional
 	SourceRef string `json:"sourceRef,omitempty"`
+
+	// Git workspace configuration. When set, the task agent clones the repo,
+	// works on a feature branch, and can create/update a PR/MR.
+	// +optional
+	Git *AgentRunGitSpec `json:"git,omitempty"`
+}
+
+// AgentRunGitSpec configures a git workspace for a task agent run.
+type AgentRunGitSpec struct {
+	// Reference to an AgentResource CR (github-repo, gitlab-project, or git-repo)
+	// that provides the repository URL and credentials.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ResourceRef string `json:"resourceRef"`
+
+	// Feature branch to work on. Created from baseBranch if it doesn't exist.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Branch string `json:"branch"`
+
+	// Base branch for the PR/MR target (e.g. "main"). Defaults to the repo's default branch.
+	// +optional
+	BaseBranch string `json:"baseBranch,omitempty"`
 }
 
 // AgentRunStatus defines the observed state of AgentRun.
@@ -103,6 +126,20 @@ type AgentRunStatus struct {
 	// Actual model used (may differ from agent's primary if fallback triggered).
 	// +optional
 	Model string `json:"model,omitempty"`
+
+	// ── Git output (populated when spec.git is set) ──
+
+	// URL of the pull request / merge request created or updated by the agent.
+	// +optional
+	PullRequestURL string `json:"pullRequestURL,omitempty"`
+
+	// Number of commits pushed by the agent during this run.
+	// +optional
+	Commits int `json:"commits,omitempty"`
+
+	// Git branch the agent worked on.
+	// +optional
+	Branch string `json:"branch,omitempty"`
 
 	// Standard conditions.
 	// +optional
