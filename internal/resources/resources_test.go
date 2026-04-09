@@ -372,3 +372,72 @@ func TestBuildAgentConfigMap_NoResources(t *testing.T) {
 		t.Errorf("expected 0 resources, got %d", len(cfg.Resources))
 	}
 }
+
+// ── Memory Protocol tests ──
+
+func TestBuildAgentConfigMap_MemoryProtocolAppended(t *testing.T) {
+	agent := testAgent()
+	agent.Spec.Memory = &agentsv1alpha1.MemorySpec{
+		ServerRef: "engram",
+	}
+
+	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data := cm.Data["config.json"]
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(data), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	// Memory config should be set
+	if cfg.Memory == nil {
+		t.Fatal("expected memory config")
+	}
+	if cfg.Memory.Project != "test-agent" {
+		t.Errorf("expected project=test-agent, got %q", cfg.Memory.Project)
+	}
+
+	// System prompt should contain original + memory protocol
+	if !strings.HasPrefix(cfg.SystemPrompt, "You are helpful.") {
+		t.Errorf("expected system prompt to start with original, got %q", cfg.SystemPrompt[:50])
+	}
+	if !strings.Contains(cfg.SystemPrompt, "Engram Persistent Memory") {
+		t.Error("expected system prompt to contain Engram Memory Protocol")
+	}
+	if !strings.Contains(cfg.SystemPrompt, "mem_save") {
+		t.Error("expected system prompt to reference mem_save")
+	}
+	if !strings.Contains(cfg.SystemPrompt, "mem_search") {
+		t.Error("expected system prompt to reference mem_search")
+	}
+	if !strings.Contains(cfg.SystemPrompt, "mem_context") {
+		t.Error("expected system prompt to reference mem_context")
+	}
+}
+
+func TestBuildAgentConfigMap_NoMemoryNoProtocol(t *testing.T) {
+	agent := testAgent()
+	// No memory spec set
+
+	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data := cm.Data["config.json"]
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(data), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	// System prompt should NOT contain memory protocol
+	if strings.Contains(cfg.SystemPrompt, "Engram Persistent Memory") {
+		t.Error("expected system prompt to NOT contain Engram Memory Protocol when memory is disabled")
+	}
+	if cfg.SystemPrompt != "You are helpful." {
+		t.Errorf("expected unmodified system prompt, got %q", cfg.SystemPrompt)
+	}
+}

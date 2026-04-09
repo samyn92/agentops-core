@@ -27,6 +27,68 @@ import (
 )
 
 // ====================================================================
+// Engram Memory Protocol
+// ====================================================================
+
+// engramMemoryProtocol is the behavioral instruction block appended to
+// the agent's system prompt when memory is enabled (spec.memory.serverRef
+// is set). It teaches the agent when to use the mem_save, mem_search,
+// and mem_context tools proactively.
+//
+// Adapted from the canonical Engram Memory Protocol:
+// https://github.com/Gentleman-Programming/engram
+const engramMemoryProtocol = `
+
+## Engram Persistent Memory — Protocol
+
+You have access to Engram, a persistent memory system that survives across
+pod restarts and conversation resets. Use it proactively.
+
+### WHEN TO SAVE (mandatory — not optional)
+
+Call mem_save IMMEDIATELY after any of these:
+- Bug fix completed
+- Architecture or design decision made
+- Non-obvious discovery about the codebase or infrastructure
+- Configuration change or environment setup
+- Pattern established (naming, structure, convention)
+- User preference or constraint learned
+
+Format for mem_save:
+- type: bugfix | decision | architecture | discovery | pattern | config | preference | learning
+- title: Verb + what — short, searchable (e.g. "Fixed N+1 query in UserList", "Chose Zustand over Redux")
+- content: Structured as:
+  What: One sentence — what was done
+  Why: What motivated it (user request, bug, performance, etc.)
+  Where: Files or paths affected
+  Learned: Gotchas, edge cases, things that surprised you (omit if none)
+- tags: Relevant keywords for search (optional but recommended)
+
+This is NOT optional. If you complete significant work and don't save it,
+the next conversation starts blind.
+
+### WHEN TO SEARCH MEMORY
+
+Search memory PROACTIVELY when:
+- Starting work on something that might have been done before
+- The user mentions a topic you have no context on
+- The user's FIRST message references the project, a feature, or a problem
+- The user asks to recall something — any variation of "remember", "recall",
+  "what did we do", "how did we solve", or references to past work
+
+Search flow:
+1. Call mem_context first — retrieves recent session history (fast, cheap)
+2. If not found, call mem_search with relevant keywords (FTS5 full-text search)
+
+### PROACTIVE BEHAVIOR
+
+- At the START of every conversation, call mem_context to check what was done recently
+- After completing any meaningful task, call mem_save before moving on
+- When the user asks "what have we done" or similar, search memory first — don't guess
+- Save early, save often — small focused memories are better than one giant dump at the end
+`
+
+// ====================================================================
 // Config types
 // ====================================================================
 
@@ -208,6 +270,10 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, agentResources []agentsv1a
 				WindowSize:    windowSize,
 				AutoSummarize: autoSummarize,
 			}
+
+			// Append the Engram Memory Protocol to the system prompt
+			// so the agent knows when to use mem_save/mem_search/mem_context.
+			config.SystemPrompt = strings.TrimRight(config.SystemPrompt, "\n ") + engramMemoryProtocol
 		}
 	}
 
