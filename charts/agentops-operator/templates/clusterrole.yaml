@@ -12,6 +12,7 @@ rules:
     resources:
       - configmaps
       - persistentvolumeclaims
+      - serviceaccounts
       - services
     verbs:
       - create
@@ -104,6 +105,20 @@ rules:
     resources:
       - ingresses
       - networkpolicies
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  # RBAC (agent pod permissions)
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - roles
+      - rolebindings
     verbs:
       - create
       - delete

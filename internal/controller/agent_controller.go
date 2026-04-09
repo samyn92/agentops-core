@@ -23,6 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -53,6 +54,9 @@ type AgentReconciler struct {
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 
 func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -183,11 +187,19 @@ func hasMCPSourceTools(agentTools []agentsv1alpha1.AgentTool) bool {
 	return false
 }
 
-// reconcileDaemon handles daemon mode: PVC -> ConfigMaps -> Deployment -> Service -> NetworkPolicy -> status.
+// reconcileDaemon handles daemon mode: RBAC -> PVC -> ConfigMaps -> Deployment -> Service -> NetworkPolicy -> status.
 //
 //nolint:unparam // Result is always nil for now but will be used for requeue logic.
 func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, agentResources []agentsv1alpha1.AgentResource) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
+
+	// 0. RBAC (ServiceAccount + Role + RoleBinding) — only if the user
+	//    did not bring their own ServiceAccount.
+	if agent.Spec.ServiceAccountName == "" {
+		if err := r.reconcileAgentRBAC(ctx, agent); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 
 	// 1. PVC
 	if agent.Spec.Storage != nil {
@@ -297,11 +309,19 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 	return ctrl.Result{}, nil
 }
 
-// reconcileTask handles task mode: ConfigMaps -> status (Ready).
+// reconcileTask handles task mode: RBAC -> ConfigMaps -> status (Ready).
 //
 //nolint:unparam // Result is always nil for now but will be used for requeue logic.
 func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, agentResources []agentsv1alpha1.AgentResource) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
+
+	// 0. RBAC (ServiceAccount + Role + RoleBinding) — only if the user
+	//    did not bring their own ServiceAccount.
+	if agent.Spec.ServiceAccountName == "" {
+		if err := r.reconcileAgentRBAC(ctx, agent); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 
 	// 1. Operator extension ConfigMap
 	configMap, err := resources.BuildAgentConfigMap(agent, agentResources, agentTools)
@@ -355,6 +375,27 @@ func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alph
 
 	log.Info("Task agent reconciled", "phase", agent.Status.Phase)
 	return ctrl.Result{}, nil
+}
+
+// reconcileAgentRBAC creates/updates the ServiceAccount, Role, and RoleBinding
+// for an agent so its pods can create AgentRun CRs and read Agent CRs.
+func (r *AgentReconciler) reconcileAgentRBAC(ctx context.Context, agent *agentsv1alpha1.Agent) error {
+	sa := resources.BuildAgentServiceAccount(agent)
+	if err := reconcileOwnedResource(ctx, r.Client, r.Scheme, agent, sa); err != nil {
+		return err
+	}
+
+	role := resources.BuildAgentRole(agent)
+	if err := reconcileOwnedResource(ctx, r.Client, r.Scheme, agent, role); err != nil {
+		return err
+	}
+
+	rb := resources.BuildAgentRoleBinding(agent)
+	if err := reconcileOwnedResource(ctx, r.Client, r.Scheme, agent, rb); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // resolveAgentTools fetches all AgentTool CRs referenced by the agent.
@@ -422,6 +463,9 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.PersistentVolumeClaim{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Service{}).
+		Owns(&corev1.ServiceAccount{}).
+		Owns(&rbacv1.Role{}).
+		Owns(&rbacv1.RoleBinding{}).
 		Owns(&networkingv1.NetworkPolicy{}).
 		Named("agent").
 		Complete(r)

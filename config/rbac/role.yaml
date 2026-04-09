@@ -9,6 +9,7 @@ rules:
   resources:
   - configmaps
   - persistentvolumeclaims
+  - serviceaccounts
   - services
   verbs:
   - create
@@ -35,7 +36,6 @@ rules:
   - agents
   - agenttools
   - channels
-  - mcpservers
   verbs:
   - create
   - delete
@@ -52,7 +52,6 @@ rules:
   - agents/finalizers
   - agenttools/finalizers
   - channels/finalizers
-  - mcpservers/finalizers
   verbs:
   - update
 - apiGroups:
@@ -63,7 +62,6 @@ rules:
   - agents/status
   - agenttools/status
   - channels/status
-  - mcpservers/status
   verbs:
   - get
   - patch
@@ -97,6 +95,19 @@ rules:
   resources:
   - ingresses
   - networkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  - roles
   verbs:
   - create
   - delete

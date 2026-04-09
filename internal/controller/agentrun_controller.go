@@ -295,13 +295,17 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 
 	// Job exists — check its status
 	if existingJob.Status.Succeeded > 0 {
-		// Parse output from pod logs
-		output := r.getJobOutput(ctx, existingJob)
+		// Parse output from pod termination message
+		result := r.getJobOutput(ctx, existingJob)
 
 		now := metav1.Now()
 		run.Status.Phase = agentsv1alpha1.AgentRunPhaseSucceeded
 		run.Status.CompletionTime = &now
-		run.Status.Output = output
+		run.Status.Output = result.Output
+		if result.Model != "" {
+			run.Status.Model = result.Model
+		}
+		run.Status.ToolCalls = result.Steps
 		meta.SetStatusCondition(&run.Status.Conditions, metav1.Condition{
 			Type:   agentsv1alpha1.AgentRunConditionComplete,
 			Status: metav1.ConditionTrue,
@@ -312,15 +316,25 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 	}
 
 	if existingJob.Status.Failed > 0 {
+		// Try to get error from termination message
+		result := r.getJobOutput(ctx, existingJob)
+
 		now := metav1.Now()
 		run.Status.Phase = agentsv1alpha1.AgentRunPhaseFailed
 		run.Status.CompletionTime = &now
-		run.Status.Output = "Job failed"
+		if result.Error != "" {
+			run.Status.Output = result.Error
+		} else {
+			run.Status.Output = "Job failed"
+		}
+		if result.Model != "" {
+			run.Status.Model = result.Model
+		}
 		meta.SetStatusCondition(&run.Status.Conditions, metav1.Condition{
 			Type:    agentsv1alpha1.AgentRunConditionComplete,
 			Status:  metav1.ConditionTrue,
 			Reason:  "Failed",
-			Message: "Job execution failed",
+			Message: run.Status.Output,
 		})
 
 		return ctrl.Result{}, nil
@@ -467,30 +481,51 @@ func (r *AgentRunReconciler) pollDaemonRunStatus(ctx context.Context, run *agent
 	return ctrl.Result{}, nil
 }
 
-// getJobOutput reads the output from a completed Job's pod logs.
-func (r *AgentRunReconciler) getJobOutput(ctx context.Context, job *batchv1.Job) string {
+// getJobOutput reads the output from a completed Job's pod termination message.
+// The task runtime writes a JSON object to /dev/termination-log with fields:
+// output, steps, model, success, error.
+func (r *AgentRunReconciler) getJobOutput(ctx context.Context, job *batchv1.Job) taskRunOutput {
+	result := taskRunOutput{Output: "(no output captured)"}
+
 	// Find pods owned by the job
 	podList := &corev1.PodList{}
 	if err := r.List(ctx, podList, client.InNamespace(job.Namespace), client.MatchingLabels(
 		labels.Set{"job-name": job.Name},
 	)); err != nil {
-		return "(could not read pod logs)"
+		return result
 	}
 
-	// In a real implementation, you'd read pod logs via the Kubernetes API.
-	// For now, the task runtime writes structured JSON to stdout that the
-	// operator can parse from the pod's termination message.
 	for _, pod := range podList.Items {
 		for _, cs := range pod.Status.ContainerStatuses {
 			if cs.Name == "agent-runtime" && cs.State.Terminated != nil {
-				if cs.State.Terminated.Message != "" {
-					return cs.State.Terminated.Message
+				msg := cs.State.Terminated.Message
+				if msg == "" {
+					continue
 				}
+
+				// Try to parse as JSON (structured output from runtime)
+				var parsed taskRunOutput
+				if err := json.Unmarshal([]byte(msg), &parsed); err == nil && parsed.Output != "" {
+					return parsed
+				}
+
+				// Fallback: treat as plain text output
+				result.Output = msg
+				return result
 			}
 		}
 	}
 
-	return "(no output captured)"
+	return result
+}
+
+// taskRunOutput matches the JSON the task runtime writes to /dev/termination-log.
+type taskRunOutput struct {
+	Output  string `json:"output"`
+	Steps   int    `json:"steps"`
+	Model   string `json:"model"`
+	Success bool   `json:"success"`
+	Error   string `json:"error"`
 }
 
 // setRunFailedStatus sets the AgentRun status to Failed. Caller must patch status.

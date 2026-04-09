@@ -84,23 +84,3 @@ webhooks:
     resources:
     - channels
   sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: webhook-service
-      namespace: system
-      path: /validate-agents-agentops-io-v1alpha1-mcpserver
-  failurePolicy: Fail
-  name: vmcpserver.kb.io
-  rules:
-  - apiGroups:
-    - agents.agentops.io
-    apiVersions:
-    - v1alpha1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - mcpservers
-  sideEffects: None

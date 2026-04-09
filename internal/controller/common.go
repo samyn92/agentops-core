@@ -24,6 +24,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -171,6 +172,66 @@ func reconcileOwnedResource(
 		if err != nil {
 			return fmt.Errorf("reconcile Ingress %s: %w", key, err)
 		}
+		return nil
+
+	case *corev1.ServiceAccount:
+		existing := &corev1.ServiceAccount{}
+		existing.Name = key.Name
+		existing.Namespace = key.Namespace
+		result, err := controllerutil.CreateOrUpdate(ctx, c, existing, func() error {
+			if err := controllerutil.SetControllerReference(owner, existing, scheme); err != nil {
+				return err
+			}
+			existing.Labels = mergeLabels(existing.Labels, d.Labels)
+			existing.Annotations = mergeLabels(existing.Annotations, d.Annotations)
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("reconcile ServiceAccount %s: %w", key, err)
+		}
+		log.V(1).Info("CreateOrUpdate ServiceAccount", "name", key.Name, "result", result)
+		return nil
+
+	case *rbacv1.Role:
+		existing := &rbacv1.Role{}
+		existing.Name = key.Name
+		existing.Namespace = key.Namespace
+		result, err := controllerutil.CreateOrUpdate(ctx, c, existing, func() error {
+			if err := controllerutil.SetControllerReference(owner, existing, scheme); err != nil {
+				return err
+			}
+			existing.Labels = mergeLabels(existing.Labels, d.Labels)
+			existing.Annotations = mergeLabels(existing.Annotations, d.Annotations)
+			existing.Rules = d.Rules
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("reconcile Role %s: %w", key, err)
+		}
+		log.V(1).Info("CreateOrUpdate Role", "name", key.Name, "result", result)
+		return nil
+
+	case *rbacv1.RoleBinding:
+		existing := &rbacv1.RoleBinding{}
+		existing.Name = key.Name
+		existing.Namespace = key.Namespace
+		result, err := controllerutil.CreateOrUpdate(ctx, c, existing, func() error {
+			if err := controllerutil.SetControllerReference(owner, existing, scheme); err != nil {
+				return err
+			}
+			existing.Labels = mergeLabels(existing.Labels, d.Labels)
+			existing.Annotations = mergeLabels(existing.Annotations, d.Annotations)
+			// RoleRef is immutable after creation; only set if new
+			if existing.CreationTimestamp.IsZero() {
+				existing.RoleRef = d.RoleRef
+			}
+			existing.Subjects = d.Subjects
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("reconcile RoleBinding %s: %w", key, err)
+		}
+		log.V(1).Info("CreateOrUpdate RoleBinding", "name", key.Name, "result", result)
 		return nil
 
 	default:

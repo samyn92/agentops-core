@@ -441,3 +441,156 @@ func TestBuildAgentConfigMap_NoMemoryNoProtocol(t *testing.T) {
 		t.Errorf("expected unmodified system prompt, got %q", cfg.SystemPrompt)
 	}
 }
+
+// ── Memory autonomy mode tests ──
+
+func TestBuildAgentConfigMap_MemoryFullAutonomy(t *testing.T) {
+	// autoSave=true, autoSearch=true (defaults)
+	agent := testAgent()
+	agent.Spec.Memory = &agentsv1alpha1.MemorySpec{ServerRef: "engram"}
+
+	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(cm.Data["config.json"]), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	if !cfg.Memory.AutoSave {
+		t.Error("expected autoSave=true")
+	}
+	if !cfg.Memory.AutoSearch {
+		t.Error("expected autoSearch=true")
+	}
+	if !strings.Contains(cfg.SystemPrompt, "Call mem_save IMMEDIATELY") {
+		t.Error("expected save instructions in prompt")
+	}
+	if !strings.Contains(cfg.SystemPrompt, "Search memory AUTOMATICALLY") {
+		t.Error("expected search instructions in prompt")
+	}
+	if strings.Contains(cfg.SystemPrompt, "You must NOT call mem_save") {
+		t.Error("should not contain save-disabled instructions")
+	}
+	if strings.Contains(cfg.SystemPrompt, "You must NOT call mem_search") {
+		t.Error("should not contain search-disabled instructions")
+	}
+}
+
+func TestBuildAgentConfigMap_MemoryNoAutoSave(t *testing.T) {
+	// autoSave=false, autoSearch=true
+	agent := testAgent()
+	f := false
+	agent.Spec.Memory = &agentsv1alpha1.MemorySpec{
+		ServerRef: "engram",
+		AutoSave:  &f,
+	}
+
+	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(cm.Data["config.json"]), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	if cfg.Memory.AutoSave {
+		t.Error("expected autoSave=false")
+	}
+	if !cfg.Memory.AutoSearch {
+		t.Error("expected autoSearch=true")
+	}
+	if strings.Contains(cfg.SystemPrompt, "Call mem_save IMMEDIATELY") {
+		t.Error("should not contain save instructions when autoSave=false")
+	}
+	if !strings.Contains(cfg.SystemPrompt, "You must NOT call mem_save") {
+		t.Error("expected save-disabled instructions")
+	}
+	if !strings.Contains(cfg.SystemPrompt, "Search memory AUTOMATICALLY") {
+		t.Error("expected search instructions")
+	}
+}
+
+func TestBuildAgentConfigMap_MemoryNoAutoSearch(t *testing.T) {
+	// autoSave=true, autoSearch=false
+	agent := testAgent()
+	f := false
+	agent.Spec.Memory = &agentsv1alpha1.MemorySpec{
+		ServerRef:  "engram",
+		AutoSearch: &f,
+	}
+
+	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(cm.Data["config.json"]), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	if !cfg.Memory.AutoSave {
+		t.Error("expected autoSave=true")
+	}
+	if cfg.Memory.AutoSearch {
+		t.Error("expected autoSearch=false")
+	}
+	if !strings.Contains(cfg.SystemPrompt, "Call mem_save IMMEDIATELY") {
+		t.Error("expected save instructions")
+	}
+	if strings.Contains(cfg.SystemPrompt, "Search memory AUTOMATICALLY") {
+		t.Error("should not contain search instructions when autoSearch=false")
+	}
+	if !strings.Contains(cfg.SystemPrompt, "You must NOT call mem_search") {
+		t.Error("expected search-disabled instructions")
+	}
+}
+
+func TestBuildAgentConfigMap_MemoryFullyPassive(t *testing.T) {
+	// autoSave=false, autoSearch=false
+	agent := testAgent()
+	f := false
+	agent.Spec.Memory = &agentsv1alpha1.MemorySpec{
+		ServerRef:  "engram",
+		AutoSave:   &f,
+		AutoSearch: &f,
+	}
+
+	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(cm.Data["config.json"]), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	if cfg.Memory.AutoSave {
+		t.Error("expected autoSave=false")
+	}
+	if cfg.Memory.AutoSearch {
+		t.Error("expected autoSearch=false")
+	}
+	if !strings.Contains(cfg.SystemPrompt, "You must NOT call mem_save") {
+		t.Error("expected save-disabled instructions")
+	}
+	if !strings.Contains(cfg.SystemPrompt, "You must NOT call mem_search") {
+		t.Error("expected search-disabled instructions")
+	}
+	if strings.Contains(cfg.SystemPrompt, "Call mem_save IMMEDIATELY") {
+		t.Error("should not contain save instructions")
+	}
+	if strings.Contains(cfg.SystemPrompt, "Search memory AUTOMATICALLY") {
+		t.Error("should not contain search instructions")
+	}
+	// Should still have the header
+	if !strings.Contains(cfg.SystemPrompt, "Engram Persistent Memory") {
+		t.Error("expected memory protocol header even in passive mode")
+	}
+}

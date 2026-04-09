@@ -110,13 +110,10 @@ func buildAgentPodSpec(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.
 	containers := append([]corev1.Container{mainContainer}, sidecars...)
 
 	podSpec := corev1.PodSpec{
-		InitContainers: initContainers,
-		Containers:     containers,
-		Volumes:        volumes,
-	}
-
-	if agent.Spec.ServiceAccountName != "" {
-		podSpec.ServiceAccountName = agent.Spec.ServiceAccountName
+		InitContainers:     initContainers,
+		Containers:         containers,
+		Volumes:            volumes,
+		ServiceAccountName: AgentServiceAccountName(agent),
 	}
 
 	return podSpec
@@ -142,13 +139,8 @@ func buildVolumes(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.Agent
 		},
 	}
 
-	// Data volume: PVC for daemon, emptyDir for task
-	if taskMode {
-		volumes = append(volumes, corev1.Volume{
-			Name:         VolumeData,
-			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-		})
-	} else if agent.Spec.Storage != nil {
+	// Data volume: PVC if explicitly configured, emptyDir otherwise (scratch space for tools)
+	if !taskMode && agent.Spec.Storage != nil {
 		volumes = append(volumes, corev1.Volume{
 			Name: VolumeData,
 			VolumeSource: corev1.VolumeSource{
@@ -156,6 +148,11 @@ func buildVolumes(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.Agent
 					ClaimName: ObjectName(agent.Name, "storage"),
 				},
 			},
+		})
+	} else {
+		volumes = append(volumes, corev1.Volume{
+			Name:         VolumeData,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 		})
 	}
 
@@ -324,12 +321,10 @@ func buildMainContainer(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1
 		{Name: VolumeConfig, MountPath: MountConfig},
 	}
 
-	// Data volume (only if storage is configured or task mode)
-	if taskMode || agent.Spec.Storage != nil {
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name: VolumeData, MountPath: MountData,
-		})
-	}
+	// Data volume (always present — PVC if configured, emptyDir otherwise)
+	volumeMounts = append(volumeMounts, corev1.VolumeMount{
+		Name: VolumeData, MountPath: MountData,
+	})
 
 	// MCP config mount (if any MCP-source tools)
 	if hasMCPTools(agent, agentTools) {
