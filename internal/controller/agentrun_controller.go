@@ -434,7 +434,20 @@ func (r *AgentRunReconciler) reconcileDaemonRun(ctx context.Context, run *agents
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 
-	resp, err := httpClient.Post(promptURL, "application/json", bytes.NewReader(body))
+	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, promptURL, bytes.NewReader(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	// Inject trace context for cross-agent trace linking.
+	// The daemon runtime reads the Traceparent header to create a span link.
+	if tp, ok := run.Annotations["agents.agentops.io/traceparent"]; ok && tp != "" {
+		httpReq.Header.Set("Traceparent", tp)
+	}
+	if parentAgent, ok := run.Annotations["agents.agentops.io/parent-agent"]; ok && parentAgent != "" {
+		httpReq.Header.Set("X-AgentOps-Parent-Agent", parentAgent)
+	}
+	httpReq.Header.Set("X-AgentOps-Run-Name", run.Name)
+
+	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		log.Error(err, "Failed to send prompt to agent", "url", promptURL)
 		return ctrl.Result{RequeueAfter: requeueInterval}, nil

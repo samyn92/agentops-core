@@ -45,6 +45,21 @@ func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent,
 				Value: run.Name,
 			})
 
+			// Inject trace context for cross-agent trace linking.
+			// The runtime reads TRACEPARENT to create a span link back to the parent agent.
+			if tp, ok := run.Annotations["agents.agentops.io/traceparent"]; ok && tp != "" {
+				podSpec.Containers[i].Env = append(podSpec.Containers[i].Env, corev1.EnvVar{
+					Name:  "TRACEPARENT",
+					Value: tp,
+				})
+			}
+			if parentAgent, ok := run.Annotations["agents.agentops.io/parent-agent"]; ok && parentAgent != "" {
+				podSpec.Containers[i].Env = append(podSpec.Containers[i].Env, corev1.EnvVar{
+					Name:  "AGENT_RUN_SOURCE_AGENT",
+					Value: parentAgent,
+				})
+			}
+
 			// Inject git workspace env vars and tool volume mounts
 			if gitCfg != nil {
 				podSpec.Containers[i].Env = append(podSpec.Containers[i].Env, gitCfg.GitEnvVars()...)
