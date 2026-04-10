@@ -24,13 +24,15 @@ import (
 )
 
 const (
-	// Container images for the platform-specific MCP tool server sidecars.
+	// Container images for the platform-specific MCP tool servers.
 	// These are real container images (with rootfs, PATH, etc.) built from
 	// each server's Dockerfile — NOT the OCI artifacts pushed by `agent-tools push`.
 	// The "-server" suffix distinguishes container images from OCI artifacts.
 	//
 	// Note: git operations (clone, commit, push, etc.) are now handled by
 	// go-git built into the runtime — no mcp-git sidecar needed.
+	// Platform tools (GitHub/GitLab) are loaded via init container + stdio exec
+	// — no gateway sidecar needed.
 	GitHubToolImage = "ghcr.io/samyn92/agent-tools/github-server:latest"
 	GitLabToolImage = "ghcr.io/samyn92/agent-tools/gitlab-server:latest"
 
@@ -190,144 +192,25 @@ func (g *GitWorkspaceConfig) GitEnvVars() []corev1.EnvVar {
 	return env
 }
 
-// GitToolSidecars returns MCP gateway sidecar containers for platform-specific tools.
-// Git operations (clone, commit, push, etc.) are handled by go-git in the runtime.
-// Only GitHub or GitLab tool sidecars are added (for PR/MR creation, issue management, etc.).
-// startIndex is the MCP gateway port index offset (9001 + startIndex).
-func (g *GitWorkspaceConfig) GitToolSidecars(startIndex int) []corev1.Container {
-	var sidecars []corev1.Container
-
-	// Platform-specific MCP tool (for PR/MR creation)
-	switch g.Provider {
-	case ProviderGitHub:
-		extra := []corev1.EnvVar{
-			{Name: "GH_TOKEN", ValueFrom: g.tokenEnvVarSource()},
-		}
-		if g.GitHubAPIURL != "" {
-			extra = append(extra, corev1.EnvVar{Name: "GITHUB_API_URL", Value: g.GitHubAPIURL})
-		}
-		sidecars = append(sidecars, buildGitMCPSidecar("github", GitHubToolImage, startIndex, extra))
-
-	case ProviderGitLab:
-		extra := []corev1.EnvVar{
-			{Name: "GITLAB_TOKEN", ValueFrom: g.tokenEnvVarSource()},
-			{Name: "GITLAB_URL", Value: g.GitLabBaseURL},
-		}
-		sidecars = append(sidecars, buildGitMCPSidecar("gitlab", GitLabToolImage, startIndex, extra))
-	}
-
-	return sidecars
-}
-
-func (g *GitWorkspaceConfig) tokenEnvVarSource() *corev1.EnvVarSource {
-	if g.Credentials == nil {
-		return nil
-	}
-	return &corev1.EnvVarSource{
-		SecretKeyRef: &corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: g.Credentials.Name},
-			Key:                  g.Credentials.Key,
-		},
-	}
-}
-
-// buildGitMCPSidecar creates a sidecar container running an MCP tool server
-// via the mcp-gateway spawn mode. The tool server binary is already in the image.
-func buildGitMCPSidecar(name, image string, index int, extraEnv []corev1.EnvVar) corev1.Container {
-	port := int32(GatewayBasePort + index)
-
-	env := make([]corev1.EnvVar, 0, 4+len(extraEnv))
-	env = append(env,
-		corev1.EnvVar{Name: "GATEWAY_MODE", Value: "spawn"},
-		corev1.EnvVar{Name: "GATEWAY_PORT", Value: fmt.Sprintf("%d", port)},
-		corev1.EnvVar{Name: "GATEWAY_COMMAND", Value: fmt.Sprintf("mcp-%s", name)},
-		corev1.EnvVar{Name: "WORKSPACE", Value: "/data/repo"},
-	)
-	env = append(env, extraEnv...)
-
-	gatewayVolume := fmt.Sprintf("gw-bin-%s", name)
-
-	return corev1.Container{
-		Name:    fmt.Sprintf("gw-git-%s", name),
-		Image:   image,
-		Command: []string{"/gateway/mcp-gateway"},
-		Env:     env,
-		Ports: []corev1.ContainerPort{
-			{
-				Name:          fmt.Sprintf("gw-git-%d", index),
-				ContainerPort: port,
-				Protocol:      corev1.ProtocolTCP,
-			},
-		},
-		VolumeMounts: []corev1.VolumeMount{
-			{Name: gatewayVolume, MountPath: "/gateway", ReadOnly: true},
-			{Name: VolumeData, MountPath: MountData},
-		},
-	}
-}
-
-// GitToolVolumes returns volumes needed for the platform-specific MCP tool sidecars.
-// Each sidecar needs an emptyDir for the gateway binary copy.
-func (g *GitWorkspaceConfig) GitToolVolumes() []corev1.Volume {
-	var volumes []corev1.Volume
-	switch g.Provider {
-	case ProviderGitHub:
-		volumes = append(volumes, corev1.Volume{
-			Name: "gw-bin-github", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-		})
-	case ProviderGitLab:
-		volumes = append(volumes, corev1.Volume{
-			Name: "gw-bin-gitlab", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-		})
-	}
-	return volumes
-}
-
-// GitToolInitContainers returns init containers that copy the mcp-gateway binary
-// into the shared emptyDir volumes for the platform-specific sidecars.
-func (g *GitWorkspaceConfig) GitToolInitContainers() []corev1.Container {
-	var inits []corev1.Container
-	switch g.Provider {
-	case ProviderGitHub:
-		inits = append(inits, buildGatewayInitContainer("copy-gw-github", "gw-bin-github"))
-	case ProviderGitLab:
-		inits = append(inits, buildGatewayInitContainer("copy-gw-gitlab", "gw-bin-gitlab"))
-	}
-	return inits
-}
-
-func buildGatewayInitContainer(name, volumeName string) corev1.Container {
-	return corev1.Container{
-		Name:    name,
-		Image:   MCPGatewayImage,
-		Command: []string{"/mcp-gateway"},
-		Args:    []string{"--copy-to=/gateway/mcp-gateway"},
-		VolumeMounts: []corev1.VolumeMount{
-			{Name: volumeName, MountPath: "/gateway"},
-		},
-	}
-}
-
-// GitMCPServers returns MCPEntry items for the runtime config so it knows
-// how to connect to the platform-specific MCP gateway sidecars.
-// Git operations are handled by go-git built into the runtime (no MCP entry needed).
-// startIndex must match the startIndex used in GitToolSidecars.
-func (g *GitWorkspaceConfig) GitMCPServers(startIndex int) []MCPEntry {
-	var entries []MCPEntry
+// GitToolEntries returns ToolEntry items for the runtime config so it discovers
+// git platform tools via loadOCITools() (stdio exec, no gateway sidecar).
+// The init containers copy the tool binary + manifest.json into /tools/<provider>.
+func (g *GitWorkspaceConfig) GitToolEntries() []ToolEntry {
+	var entries []ToolEntry
 
 	switch g.Provider {
 	case ProviderGitHub:
-		entries = append(entries, MCPEntry{
+		entries = append(entries, ToolEntry{
 			Name:        "github",
-			Port:        GatewayBasePort + startIndex,
+			Path:        MountTools + "/github",
 			Description: "GitHub API — PRs, issues, branches, checks, workflows",
 			Category:    "git",
 			UIHint:      "github",
 		})
 	case ProviderGitLab:
-		entries = append(entries, MCPEntry{
+		entries = append(entries, ToolEntry{
 			Name:        "gitlab",
-			Port:        GatewayBasePort + startIndex,
+			Path:        MountTools + "/gitlab",
 			Description: "GitLab API — MRs, issues, pipelines, projects",
 			Category:    "git",
 			UIHint:      "gitlab",
@@ -335,4 +218,68 @@ func (g *GitWorkspaceConfig) GitMCPServers(startIndex int) []MCPEntry {
 	}
 
 	return entries
+}
+
+// GitToolVolumes returns volumes needed for the platform-specific tool binaries.
+// Each provider gets an emptyDir where the init container copies the binary + manifest.
+func (g *GitWorkspaceConfig) GitToolVolumes() []corev1.Volume {
+	var volumes []corev1.Volume
+	switch g.Provider {
+	case ProviderGitHub:
+		volumes = append(volumes, corev1.Volume{
+			Name: "tool-github", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		})
+	case ProviderGitLab:
+		volumes = append(volumes, corev1.Volume{
+			Name: "tool-gitlab", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		})
+	}
+	return volumes
+}
+
+// GitToolVolumeMounts returns volume mounts for the runtime container so it
+// can access the tool binary + manifest copied by the init container.
+func (g *GitWorkspaceConfig) GitToolVolumeMounts() []corev1.VolumeMount {
+	var mounts []corev1.VolumeMount
+	switch g.Provider {
+	case ProviderGitHub:
+		mounts = append(mounts, corev1.VolumeMount{
+			Name: "tool-github", MountPath: MountTools + "/github", ReadOnly: true,
+		})
+	case ProviderGitLab:
+		mounts = append(mounts, corev1.VolumeMount{
+			Name: "tool-gitlab", MountPath: MountTools + "/gitlab", ReadOnly: true,
+		})
+	}
+	return mounts
+}
+
+// GitToolInitContainers returns init containers that copy the tool binary and
+// manifest.json from the tool server image into a shared emptyDir volume.
+// The runtime's loadOCITools() reads manifest.json to find the binary name,
+// then spawns it via stdio — no gateway or HTTP hop needed.
+func (g *GitWorkspaceConfig) GitToolInitContainers() []corev1.Container {
+	var inits []corev1.Container
+	switch g.Provider {
+	case ProviderGitHub:
+		inits = append(inits, buildToolCopyInitContainer("copy-tool-github", GitHubToolImage, "tool-github", "mcp-github"))
+	case ProviderGitLab:
+		inits = append(inits, buildToolCopyInitContainer("copy-tool-gitlab", GitLabToolImage, "tool-gitlab", "mcp-gitlab"))
+	}
+	return inits
+}
+
+// buildToolCopyInitContainer creates an init container that copies the tool
+// binary and manifest.json from the tool server image into a shared volume.
+// Layout after copy: /tools/<provider>/manifest.json, /tools/<provider>/mcp-<provider>
+func buildToolCopyInitContainer(name, image, volumeName, binaryName string) corev1.Container {
+	return corev1.Container{
+		Name:    name,
+		Image:   image,
+		Command: []string{"/bin/sh", "-c"},
+		Args:    []string{fmt.Sprintf("cp /bin/%s /out/%s && cp /manifest.json /out/manifest.json", binaryName, binaryName)},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: volumeName, MountPath: "/out"},
+		},
+	}
 }

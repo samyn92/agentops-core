@@ -66,6 +66,30 @@ spec:
                 description: Name of the Agent CR to run.
                 minLength: 1
                 type: string
+              git:
+                description: |-
+                  Git workspace configuration. When set, the task agent clones the repo,
+                  works on a feature branch, and can create/update a PR/MR.
+                properties:
+                  baseBranch:
+                    description: Base branch for the PR/MR target (e.g. "main"). Defaults
+                      to the repo's default branch.
+                    type: string
+                  branch:
+                    description: Feature branch to work on. Created from baseBranch
+                      if it doesn't exist.
+                    minLength: 1
+                    type: string
+                  resourceRef:
+                    description: |-
+                      Reference to an AgentResource CR (github-repo, gitlab-project, or git-repo)
+                      that provides the repository URL and credentials.
+                    minLength: 1
+                    type: string
+                required:
+                - branch
+                - resourceRef
+                type: object
               prompt:
                 description: Prompt to send to the agent.
                 minLength: 1
@@ -76,6 +100,7 @@ spec:
                 - channel
                 - agent
                 - schedule
+                - console
                 type: string
               sourceRef:
                 description: Name of the source (Channel name, agent name, or "schedule").
@@ -88,6 +113,12 @@ spec:
           status:
             description: AgentRunStatus defines the observed state of AgentRun.
             properties:
+              branch:
+                description: Git branch the agent worked on.
+                type: string
+              commits:
+                description: Number of commits pushed by the agent during this run.
+                type: integer
               completionTime:
                 description: When execution completed.
                 format: date-time
@@ -171,6 +202,10 @@ spec:
               phase:
                 description: 'Current phase: Pending, Queued, Running, Succeeded,
                   Failed.'
+                type: string
+              pullRequestURL:
+                description: URL of the pull request / merge request created or updated
+                  by the agent.
                 type: string
               startTime:
                 description: When execution started.

@@ -62,6 +62,10 @@ const (
 	MountConfig  = "/etc/operator"
 	MountGateway = "/etc/gateway"
 	MountMCP     = "/etc/mcp"
+
+	// DefaultOTelEndpoint is the in-cluster Tempo OTLP gRPC endpoint.
+	// Injected unconditionally into agent pods so the runtime can export traces.
+	DefaultOTelEndpoint = "tempo.observability.svc.cluster.local:4317"
 )
 
 // CommonLabels returns the standard set of labels for an agent-owned resource.

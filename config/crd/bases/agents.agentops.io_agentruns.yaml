@@ -100,6 +100,7 @@ spec:
                 - channel
                 - agent
                 - schedule
+                - console
                 type: string
               sourceRef:
                 description: Name of the source (Channel name, agent name, or "schedule").
@@ -216,6 +217,9 @@ spec:
               toolCalls:
                 description: Number of tool calls made during execution.
                 type: integer
+              traceID:
+                description: OpenTelemetry trace ID for this run (hex-encoded 128-bit).
+                type: string
             type: object
         type: object
     served: true

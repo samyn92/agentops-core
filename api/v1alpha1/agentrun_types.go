@@ -128,6 +128,10 @@ type AgentRunStatus struct {
 	// +optional
 	Model string `json:"model,omitempty"`
 
+	// OpenTelemetry trace ID for this run (hex-encoded 128-bit).
+	// +optional
+	TraceID string `json:"traceID,omitempty"`
+
 	// ── Git output (populated when spec.git is set) ──
 
 	// URL of the pull request / merge request created or updated by the agent.

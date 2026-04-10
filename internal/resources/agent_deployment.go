@@ -436,6 +436,12 @@ func buildEnvVars(agent *agentsv1alpha1.Agent) []corev1.EnvVar {
 		corev1.EnvVar{Name: "AGENT_RUNTIME", Value: "fantasy"},
 	)
 
+	// OpenTelemetry — always inject so the runtime exports traces to Tempo.
+	env = append(env,
+		corev1.EnvVar{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: DefaultOTelEndpoint},
+		corev1.EnvVar{Name: "OTEL_SERVICE_NAME", Value: agent.Name},
+	)
+
 	// Plain-text env vars (sort for deterministic order)
 	envKeys := make([]string, 0, len(agent.Spec.Env))
 	for k := range agent.Spec.Env {

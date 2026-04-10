@@ -144,54 +144,27 @@ spec:
                 description: Maximum agent loop steps (safety limit to prevent infinite
                   loops).
                 type: integer
-              mcpServers:
-                description: |-
-                  Shared MCPServer bindings with per-agent permissions.
-                  Deprecated: Use AgentTool CRs with mcpServer/mcpEndpoint source and spec.tools[] bindings instead.
-                items:
-                  description: |-
-                    MCPServerBinding references a shared MCPServer with per-agent permissions.
-                    Deprecated: Use AgentToolBinding with AgentTool CRs instead.
-                  properties:
-                    directTools:
-                      description: MCP tools to promote to first-class tools (registered
-                        directly, not via proxy).
-                      items:
-                        type: string
-                      type: array
-                    name:
-                      description: Name of the MCPServer CR to bind.
-                      type: string
-                    permissions:
-                      description: Per-agent deny/allow rules for MCP tool calls.
-                      properties:
-                        mode:
-                          description: 'Mode: "deny" blocks matching rules, "allow"
-                            only permits matching rules.'
-                          enum:
-                          - deny
-                          - allow
-                          type: string
-                        rules:
-                          description: Rules in the form "tool_name", "tool_name:arg=value",
-                            or "tool_name:arg=pattern*".
-                          items:
-                            type: string
-                          type: array
-                      required:
-                      - mode
-                      - rules
-                      type: object
-                  required:
-                  - name
-                  type: object
-                type: array
               memory:
                 description: |-
                   Memory configuration for the Engram shared memory system.
                   When set, the runtime injects recent context and enables
                   memory MCP tools (mem_save, mem_search, etc.).
                 properties:
+                  autoSave:
+                    default: true
+                    description: |-
+                      Allow the agent to autonomously save memories via mem_save after
+                      completing meaningful work. When false, only the user can create
+                      memories through the console UI.
+                    type: boolean
+                  autoSearch:
+                    default: true
+                    description: |-
+                      Allow the agent to autonomously search memories via mem_search
+                      when the user references past work. When false, the agent never
+                      searches memory on its own — the user browses/searches via the
+                      console Memory panel.
+                    type: boolean
                   autoSummarize:
                     default: true
                     description: Enable auto-summarization of sessions at end.
@@ -209,8 +182,9 @@ spec:
                     type: string
                   serverRef:
                     description: |-
-                      Name of the MCPServer CR providing Engram (e.g. "engram").
-                      The runtime connects to Engram's REST API via the MCPServer's
+                      Reference to the memory server. Can be an AgentTool CR name
+                      (with mcpServer/mcpEndpoint source) or a plain service name.
+                      The runtime connects to Engram's REST API via the resolved
                       service URL.
                     minLength: 1
                     type: string
@@ -284,7 +258,7 @@ spec:
                 type: array
               resourceBindings:
                 description: |-
-                  External resources (repos, groups, MCP endpoints, etc.) bound to this agent.
+                  External resources (repos, groups, etc.) bound to this agent.
                   Users can select bound resources in the console UI to scope prompts.
                 items:
                   description: AgentResourceBinding references an AgentResource CR
@@ -402,73 +376,6 @@ spec:
               serviceAccountName:
                 description: ServiceAccount for the agent pod.
                 type: string
-              skillRefs:
-                description: |-
-                  Skill packages providing domain-specific instructions injected
-                  into the system prompt. Each ref is an OCI artifact, ConfigMap,
-                  or inline markdown.
-                  Deprecated: Use AgentTool CRs with skill source and spec.tools[] bindings instead.
-                items:
-                  description: |-
-                    ResourceRef references a resource from OCI, ConfigMap, or inline content.
-                    Exactly one of ociRef, configMapRef, or content must be set.
-                  properties:
-                    configMapRef:
-                      description: ConfigMap reference (name + key).
-                      properties:
-                        key:
-                          description: Key within the Secret.
-                          type: string
-                        name:
-                          description: Name of the Secret.
-                          type: string
-                      required:
-                      - key
-                      - name
-                      type: object
-                    content:
-                      description: Inline content (< 4KB, for prototyping).
-                      type: string
-                    name:
-                      description: Logical name for this resource.
-                      type: string
-                    ociRef:
-                      description: OCI artifact reference.
-                      properties:
-                        digest:
-                          description: Optional digest for pinning (e.g. sha256:abc...).
-                          type: string
-                        pullPolicy:
-                          description: 'Pull policy: Always, IfNotPresent, Never.
-                            Defaults based on tag.'
-                          enum:
-                          - Always
-                          - IfNotPresent
-                          - Never
-                          type: string
-                        pullSecret:
-                          description: Optional pull secret for private registries.
-                          properties:
-                            key:
-                              description: Key within the Secret.
-                              type: string
-                            name:
-                              description: Name of the Secret.
-                              type: string
-                          required:
-                          - key
-                          - name
-                          type: object
-                        ref:
-                          description: Full OCI reference (e.g. ghcr.io/org/tool:1.0.0).
-                          type: string
-                      required:
-                      - ref
-                      type: object
-                  required:
-                  - name
-                  type: object
-                type: array
               storage:
                 description: Persistent storage for daemon agents (PVC, RWO).
                 properties:
@@ -517,78 +424,10 @@ spec:
                       type: string
                     type: array
                 type: object
-              toolRefs:
-                description: |-
-                  OCI packages or ConfigMaps providing MCP tool servers.
-                  Tools are packaged as MCP servers and work with the Fantasy runtime.
-                  Deprecated: Use AgentTool CRs with oci/configMap source and spec.tools[] bindings instead.
-                items:
-                  description: |-
-                    ResourceRef references a resource from OCI, ConfigMap, or inline content.
-                    Exactly one of ociRef, configMapRef, or content must be set.
-                  properties:
-                    configMapRef:
-                      description: ConfigMap reference (name + key).
-                      properties:
-                        key:
-                          description: Key within the Secret.
-                          type: string
-                        name:
-                          description: Name of the Secret.
-                          type: string
-                      required:
-                      - key
-                      - name
-                      type: object
-                    content:
-                      description: Inline content (< 4KB, for prototyping).
-                      type: string
-                    name:
-                      description: Logical name for this resource.
-                      type: string
-                    ociRef:
-                      description: OCI artifact reference.
-                      properties:
-                        digest:
-                          description: Optional digest for pinning (e.g. sha256:abc...).
-                          type: string
-                        pullPolicy:
-                          description: 'Pull policy: Always, IfNotPresent, Never.
-                            Defaults based on tag.'
-                          enum:
-                          - Always
-                          - IfNotPresent
-                          - Never
-                          type: string
-                        pullSecret:
-                          description: Optional pull secret for private registries.
-                          properties:
-                            key:
-                              description: Key within the Secret.
-                              type: string
-                            name:
-                              description: Name of the Secret.
-                              type: string
-                          required:
-                          - key
-                          - name
-                          type: object
-                        ref:
-                          description: Full OCI reference (e.g. ghcr.io/org/tool:1.0.0).
-                          type: string
-                      required:
-                      - ref
-                      type: object
-                  required:
-                  - name
-                  type: object
-                type: array
               tools:
                 description: |-
-                  Unified tool bindings referencing AgentTool CRs. Each binding
-                  names an AgentTool and allows per-agent permission overrides.
-                  This is the preferred way to attach tools; toolRefs, mcpServers,
-                  and skillRefs are deprecated and will be removed in v1alpha2.
+                  Tool bindings referencing AgentTool CRs. Each binding names an
+                  AgentTool and allows per-agent permission overrides.
                 items:
                   description: AgentToolBinding references an AgentTool CR with optional
                     per-agent overrides.

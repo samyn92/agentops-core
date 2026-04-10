@@ -126,6 +126,11 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
 
+	// Set initial phase so the run is always visible as Pending at minimum
+	if run.Status.Phase == "" {
+		run.Status.Phase = agentsv1alpha1.AgentRunPhasePending
+	}
+
 	// Execute based on agent mode
 	var result ctrl.Result
 	var reconcileErr error
@@ -139,13 +144,14 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		r.setRunFailedStatus(run, fmt.Sprintf("Unknown agent mode: %s", agent.Spec.Mode))
 	}
 
-	if reconcileErr != nil {
-		return ctrl.Result{}, reconcileErr
-	}
-
-	// Patch status (only writes if status actually changed)
+	// Always patch status so Mode and Phase are persisted, even when the
+	// reconcile function returns an error (e.g. Job creation failure).
 	if err := patchStatus(ctx, r.Client, run, statusPatch); err != nil {
 		return ctrl.Result{}, err
+	}
+
+	if reconcileErr != nil {
+		return ctrl.Result{}, reconcileErr
 	}
 
 	return result, nil
@@ -282,7 +288,7 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 			gitCfg = resolved
 		}
 
-		// Create a per-run ConfigMap with git MCP server entries if needed
+		// Create a per-run ConfigMap with git tool entries if needed
 		runConfigMapName := ""
 		if gitCfg != nil {
 			// Get the base agent ConfigMap
@@ -294,11 +300,9 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 				return ctrl.Result{}, fmt.Errorf("get base config: %w", err)
 			}
 
-			// Count existing MCP sidecars to determine port offset
-			mcpCount := len(agentTools)
-			gitMCPServers := gitCfg.GitMCPServers(mcpCount)
+			gitToolEntries := gitCfg.GitToolEntries()
 
-			runCM, err := resources.BuildAgentRunConfigMap(baseConfigMap, run.Name, gitMCPServers)
+			runCM, err := resources.BuildAgentRunConfigMap(baseConfigMap, run.Name, gitToolEntries)
 			if err != nil {
 				return ctrl.Result{}, fmt.Errorf("build run config: %w", err)
 			}
@@ -309,7 +313,7 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 				return ctrl.Result{}, fmt.Errorf("create run config: %w", err)
 			}
 			runConfigMapName = runCM.Name
-			log.Info("Created per-run ConfigMap with git MCP servers", "configMap", runCM.Name)
+			log.Info("Created per-run ConfigMap with git tool entries", "configMap", runCM.Name)
 		}
 
 		// Create Job
@@ -353,6 +357,9 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 		if result.Model != "" {
 			run.Status.Model = result.Model
 		}
+		if result.TraceID != "" {
+			run.Status.TraceID = result.TraceID
+		}
 		run.Status.ToolCalls = result.Steps
 		if result.PullRequestURL != "" {
 			run.Status.PullRequestURL = result.PullRequestURL
@@ -386,6 +393,9 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 		}
 		if result.Model != "" {
 			run.Status.Model = result.Model
+		}
+		if result.TraceID != "" {
+			run.Status.TraceID = result.TraceID
 		}
 		meta.SetStatusCondition(&run.Status.Conditions, metav1.Condition{
 			Type:    agentsv1alpha1.AgentRunConditionComplete,
@@ -444,6 +454,7 @@ func (r *AgentRunReconciler) reconcileDaemonRun(ctx context.Context, run *agents
 		TokensUsed int    `json:"tokensUsed"`
 		Cost       string `json:"cost"`
 		Model      string `json:"model"`
+		TraceID    string `json:"traceID"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -461,6 +472,9 @@ func (r *AgentRunReconciler) reconcileDaemonRun(ctx context.Context, run *agents
 		run.Status.TokensUsed = result.TokensUsed
 		run.Status.Cost = result.Cost
 		run.Status.Model = result.Model
+		if result.TraceID != "" {
+			run.Status.TraceID = result.TraceID
+		}
 		meta.SetStatusCondition(&run.Status.Conditions, metav1.Condition{
 			Type:   agentsv1alpha1.AgentRunConditionComplete,
 			Status: metav1.ConditionTrue,
@@ -510,6 +524,7 @@ func (r *AgentRunReconciler) pollDaemonRunStatus(ctx context.Context, run *agent
 		TokensUsed int    `json:"tokensUsed"`
 		Cost       string `json:"cost"`
 		Model      string `json:"model"`
+		TraceID    string `json:"traceID"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
@@ -529,6 +544,9 @@ func (r *AgentRunReconciler) pollDaemonRunStatus(ctx context.Context, run *agent
 	run.Status.TokensUsed = status.TokensUsed
 	run.Status.Cost = status.Cost
 	run.Status.Model = status.Model
+	if status.TraceID != "" {
+		run.Status.TraceID = status.TraceID
+	}
 	meta.SetStatusCondition(&run.Status.Conditions, metav1.Condition{
 		Type:   agentsv1alpha1.AgentRunConditionComplete,
 		Status: metav1.ConditionTrue,
@@ -583,6 +601,7 @@ type taskRunOutput struct {
 	Model          string `json:"model"`
 	Success        bool   `json:"success"`
 	Error          string `json:"error"`
+	TraceID        string `json:"traceID,omitempty"`
 	PullRequestURL string `json:"pullRequestURL,omitempty"`
 	Commits        int    `json:"commits,omitempty"`
 	Branch         string `json:"branch,omitempty"`
