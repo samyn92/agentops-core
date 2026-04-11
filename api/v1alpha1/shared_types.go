@@ -114,10 +114,11 @@ type MCPPermissions struct {
 }
 
 // -------------------------------------------------------------------
-// Tool hooks (defense-in-depth)
+// Tool hooks (defense-in-depth + memory integration)
 // -------------------------------------------------------------------
 
-// ToolHooksSpec configures defense-in-depth runtime constraints on tool calls.
+// ToolHooksSpec configures defense-in-depth runtime constraints on tool calls,
+// and declarative memory integration (audit persistence, auto-capture, context injection).
 type ToolHooksSpec struct {
 	// Patterns blocked in bash commands (substring match).
 	// +optional
@@ -125,9 +126,57 @@ type ToolHooksSpec struct {
 	// Restrict file tool paths to these prefixes (absolute paths only).
 	// +optional
 	AllowedPaths []string `json:"allowedPaths,omitempty"`
-	// Tools to audit-log via afterToolCall hook.
+	// Tools to audit-log via afterToolCall hook. When memory is enabled,
+	// audit events are also persisted as searchable observations.
 	// +optional
 	AuditTools []string `json:"auditTools,omitempty"`
+	// Declarative rules for auto-saving tool results as memory observations.
+	// Each rule matches a tool name and optionally filters by output/args regex.
+	// +optional
+	MemorySaveRules []MemorySaveRuleSpec `json:"memorySaveRules,omitempty"`
+	// Pre-execution memory queries: before a matched tool runs, relevant
+	// memories are fetched and recorded in the trace for observability.
+	// +optional
+	ContextInjectTools []ContextInjectRuleSpec `json:"contextInjectTools,omitempty"`
+}
+
+// MemorySaveRuleSpec describes a declarative rule for auto-saving tool results
+// as memory observations in agentops-memory.
+type MemorySaveRuleSpec struct {
+	// Tool name to match (e.g. "bash", "web_search").
+	Tool string `json:"tool"`
+	// Regex pattern to match against tool output. If empty, all output is captured.
+	// +optional
+	MatchOutput string `json:"matchOutput,omitempty"`
+	// Map of arg_name → regex pattern. All patterns must match for the rule to fire.
+	// +optional
+	MatchArgs map[string]string `json:"matchArgs,omitempty"`
+	// Observation type to save (e.g. "bugfix", "discovery"). Default: "discovery".
+	// +optional
+	// +kubebuilder:default=discovery
+	Type string `json:"type,omitempty"`
+	// Scope for the observation. Default: "project".
+	// +optional
+	// +kubebuilder:default=project
+	// +kubebuilder:validation:Enum=project;global
+	Scope string `json:"scope,omitempty"`
+}
+
+// ContextInjectRuleSpec describes a pre-execution memory query for a tool.
+type ContextInjectRuleSpec struct {
+	// Tool name to match.
+	Tool string `json:"tool"`
+	// How to derive the search query. "from_tool_args" (default) uses the tool's
+	// primary argument. Any other value is used as a static query string.
+	// +optional
+	// +kubebuilder:default=from_tool_args
+	Query string `json:"query,omitempty"`
+	// Max number of memory items to fetch. Default: 3.
+	// +optional
+	// +kubebuilder:default=3
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=10
+	Limit int `json:"limit,omitempty"`
 }
 
 // -------------------------------------------------------------------

@@ -37,81 +37,45 @@ import (
 //
 // Adapted from the canonical Engram Memory Protocol:
 // https://github.com/Gentleman-Programming/engram
-// engramMemoryProtocolHeader is always included when memory is enabled.
-const engramMemoryProtocolHeader = `
+// memoryProtocolHeader is always included when memory is enabled.
+const memoryProtocolHeader = `
 
-## Engram Persistent Memory — Protocol
+## Memory System
 
-You have access to Engram, a persistent memory system that survives across
-pod restarts and conversation resets.
+You have persistent memory (survives restarts). Context from past sessions is auto-injected before each turn.
 `
 
-// engramMemoryProtocolSave is included when autoSave is enabled.
-const engramMemoryProtocolSave = `
-### WHEN TO SAVE (mandatory — not optional)
+// memoryProtocolSave is included when autoSave is enabled.
+const memoryProtocolSave = `
+### Saving — call mem_save after:
+- Bug fixes, architecture/design decisions, non-obvious discoveries
+- Config changes, established patterns, user preferences
 
-Call mem_save IMMEDIATELY after any of these:
-- Bug fix completed
-- Architecture or design decision made
-- Non-obvious discovery about the codebase or infrastructure
-- Configuration change or environment setup
-- Pattern established (naming, structure, convention)
-- User preference or constraint learned
+Format: type (bugfix|decision|discovery|pattern|config|preference|learning), title (verb + what, searchable), content (what/why/where, plus gotchas if any), tags (keywords).
 
-Format for mem_save:
-- type: bugfix | decision | architecture | discovery | pattern | config | preference | learning
-- title: Verb + what — short, searchable (e.g. "Fixed N+1 query in UserList", "Chose Zustand over Redux")
-- content: Structured as:
-  What: One sentence — what was done
-  Why: What motivated it (user request, bug, performance, etc.)
-  Where: Files or paths affected
-  Learned: Gotchas, edge cases, things that surprised you (omit if none)
-- tags: Relevant keywords for search (optional but recommended)
-
-This is NOT optional. If you complete significant work and don't save it,
-the next conversation starts blind.
-
-After completing any meaningful task, call mem_save before moving on.
-Save early, save often — small focused memories are better than one giant dump at the end.
+Save small focused memories as you go — don't batch.
 `
 
-// engramMemoryProtocolSaveDisabled is included when autoSave is disabled.
-const engramMemoryProtocolSaveDisabled = `
-### SAVING MEMORIES
-
-You must NOT call mem_save autonomously. Memory saving is managed by the user
-through the console UI. Focus on the task at hand — the user will decide what
-knowledge is worth persisting.
+// memoryProtocolSaveDisabled is included when autoSave is disabled.
+const memoryProtocolSaveDisabled = `
+### Saving
+Do NOT call mem_save. The user manages memory via the console.
 `
 
-// engramMemoryProtocolSearch is included when autoSearch is enabled.
-const engramMemoryProtocolSearch = `
-### WHEN TO SEARCH MEMORY
+// memoryProtocolSearch is included when autoSearch is enabled.
+const memoryProtocolSearch = `
+### Searching — call mem_search when:
+- User references past work ("remember", "last time", "what did we do", "that bug")
+- User asks "what have we done" — search first, don't guess
 
-Search memory AUTOMATICALLY (no need to ask) when the user references past work:
-- Any variation of "remember", "recall", "what did we do", "how did we solve",
-  "last time", "that bug", "we had", "before", or references to previous work
-- Call mem_search with relevant keywords (FTS5 full-text search)
-
-ASK BEFORE SEARCHING when it is your own idea during troubleshooting:
-- You encounter an error or unexpected behavior and think prior knowledge may help
-- Say something like: "Should I check if we've documented something about this?"
-- Only search after the user confirms
-
-DO NOT search memory on every conversation start. Do not call mem_context or
-mem_search unless there is a specific reason. Casual greetings and simple
-questions do not need memory lookups.
-
-When the user asks "what have we done" or similar, search memory first — don't guess.
+Ask before searching on your own initiative during troubleshooting.
+Do NOT search on conversation start or for simple questions.
 `
 
-// engramMemoryProtocolSearchDisabled is included when autoSearch is disabled.
-const engramMemoryProtocolSearchDisabled = `
-### SEARCHING MEMORY
-
-You must NOT call mem_search or mem_context autonomously. Memory search is
-managed by the user through the console UI. If you think past knowledge might
-be relevant, tell the user — they can look it up and share it with you.
+// memoryProtocolSearchDisabled is included when autoSearch is disabled.
+const memoryProtocolSearchDisabled = `
+### Searching
+Do NOT call mem_search or mem_context. The user manages memory lookups via the console.
 `
 
 // buildMemoryProtocol assembles the memory protocol based on the agent's
@@ -126,18 +90,18 @@ func buildMemoryProtocol(memory *agentsv1alpha1.MemorySpec) string {
 		autoSearch = *memory.AutoSearch
 	}
 
-	protocol := engramMemoryProtocolHeader
+	protocol := memoryProtocolHeader
 
 	if autoSave {
-		protocol += engramMemoryProtocolSave
+		protocol += memoryProtocolSave
 	} else {
-		protocol += engramMemoryProtocolSaveDisabled
+		protocol += memoryProtocolSaveDisabled
 	}
 
 	if autoSearch {
-		protocol += engramMemoryProtocolSearch
+		protocol += memoryProtocolSearch
 	} else {
-		protocol += engramMemoryProtocolSearchDisabled
+		protocol += memoryProtocolSearchDisabled
 	}
 
 	return protocol
@@ -173,9 +137,27 @@ type ProviderEntry struct {
 
 // ToolHooksEntry holds runtime hook config.
 type ToolHooksEntry struct {
-	BlockedCommands []string `json:"blockedCommands,omitempty"`
-	AllowedPaths    []string `json:"allowedPaths,omitempty"`
-	AuditTools      []string `json:"auditTools,omitempty"`
+	BlockedCommands    []string            `json:"blockedCommands,omitempty"`
+	AllowedPaths       []string            `json:"allowedPaths,omitempty"`
+	AuditTools         []string            `json:"auditTools,omitempty"`
+	MemorySaveRules    []MemorySaveRule    `json:"memorySaveRules,omitempty"`
+	ContextInjectTools []ContextInjectRule `json:"contextInjectTools,omitempty"`
+}
+
+// MemorySaveRule mirrors the CRD spec for config.json serialization.
+type MemorySaveRule struct {
+	Tool        string            `json:"tool"`
+	MatchOutput string            `json:"matchOutput,omitempty"`
+	MatchArgs   map[string]string `json:"matchArgs,omitempty"`
+	Type        string            `json:"type,omitempty"`
+	Scope       string            `json:"scope,omitempty"`
+}
+
+// ContextInjectRule mirrors the CRD spec for config.json serialization.
+type ContextInjectRule struct {
+	Tool  string `json:"tool"`
+	Query string `json:"query,omitempty"`
+	Limit int    `json:"limit,omitempty"`
 }
 
 // ContextEntry describes a context file.
@@ -413,6 +395,24 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, agentResources []agentsv1a
 			BlockedCommands: agent.Spec.ToolHooks.BlockedCommands,
 			AllowedPaths:    agent.Spec.ToolHooks.AllowedPaths,
 			AuditTools:      agent.Spec.ToolHooks.AuditTools,
+		}
+		// Memory save rules
+		for _, r := range agent.Spec.ToolHooks.MemorySaveRules {
+			config.ToolHooks.MemorySaveRules = append(config.ToolHooks.MemorySaveRules, MemorySaveRule{
+				Tool:        r.Tool,
+				MatchOutput: r.MatchOutput,
+				MatchArgs:   r.MatchArgs,
+				Type:        r.Type,
+				Scope:       r.Scope,
+			})
+		}
+		// Context inject rules
+		for _, r := range agent.Spec.ToolHooks.ContextInjectTools {
+			config.ToolHooks.ContextInjectTools = append(config.ToolHooks.ContextInjectTools, ContextInjectRule{
+				Tool:  r.Tool,
+				Query: r.Query,
+				Limit: r.Limit,
+			})
 		}
 	}
 
