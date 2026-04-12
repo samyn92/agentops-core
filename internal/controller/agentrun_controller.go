@@ -467,7 +467,7 @@ func (r *AgentRunReconciler) reconcileDaemonRun(ctx context.Context, run *agents
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB cap
 		r.setRunFailedStatus(run, fmt.Sprintf("Agent returned %d: %s", resp.StatusCode, string(respBody)))
 		return ctrl.Result{}, nil
 	}
@@ -521,7 +521,23 @@ func (r *AgentRunReconciler) reconcileDaemonRun(ctx context.Context, run *agents
 }
 
 // pollDaemonRunStatus checks the daemon agent's /status endpoint for run completion.
+// Enforces a TTL based on the agent's Timeout field to prevent infinite polling.
 func (r *AgentRunReconciler) pollDaemonRunStatus(ctx context.Context, run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent) (ctrl.Result, error) {
+	// TTL check: fail the run if it's been running longer than the agent timeout.
+	if run.Status.StartTime != nil {
+		timeout := 30 * time.Minute // default
+		if agent.Spec.Timeout != "" {
+			if d, err := time.ParseDuration(agent.Spec.Timeout); err == nil && d > 0 {
+				timeout = d
+			}
+		}
+		elapsed := time.Since(run.Status.StartTime.Time)
+		if elapsed > timeout {
+			r.setRunFailedStatus(run, fmt.Sprintf("Run timed out after %s (limit: %s)", elapsed.Round(time.Second), timeout))
+			return ctrl.Result{}, nil
+		}
+	}
+
 	serviceURL := resources.AgentServiceURL(agent)
 	statusURL := fmt.Sprintf("%s/status", serviceURL)
 

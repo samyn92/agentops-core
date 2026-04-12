@@ -17,6 +17,8 @@ limitations under the License.
 package resources
 
 import (
+	"time"
+
 	agentsv1alpha1 "github.com/samyn92/agentops-core/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -90,6 +92,20 @@ func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent,
 
 	var backoffLimit int32 = 0
 
+	// Parse timeout from agent spec → ActiveDeadlineSeconds to prevent infinite jobs.
+	var activeDeadline *int64
+	if agent.Spec.Timeout != "" {
+		if d, err := time.ParseDuration(agent.Spec.Timeout); err == nil && d > 0 {
+			secs := int64(d.Seconds())
+			activeDeadline = &secs
+		}
+	}
+	if activeDeadline == nil {
+		// Default: 30 minutes for task jobs.
+		defaultSecs := int64(1800)
+		activeDeadline = &defaultSecs
+	}
+
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      run.Name,
@@ -97,7 +113,8 @@ func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent,
 			Labels:    labels,
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit: &backoffLimit,
+			BackoffLimit:          &backoffLimit,
+			ActiveDeadlineSeconds: activeDeadline,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
