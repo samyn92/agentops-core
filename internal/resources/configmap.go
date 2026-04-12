@@ -477,7 +477,18 @@ func BuildAgentRunConfigMap(baseConfigMap *corev1.ConfigMap, runName string, git
 		return nil, fmt.Errorf("unmarshal base config: %w", err)
 	}
 
-	config.Tools = append(config.Tools, gitToolEntries...)
+	// Deduplicate: skip git tool entries that already exist in the base config.
+	// The agent spec may already reference the same tool (e.g. gitlab) that the
+	// git workspace also injects — appending blindly causes duplicate MCP servers.
+	existing := make(map[string]struct{}, len(config.Tools))
+	for _, t := range config.Tools {
+		existing[t.Name] = struct{}{}
+	}
+	for _, gt := range gitToolEntries {
+		if _, dup := existing[gt.Name]; !dup {
+			config.Tools = append(config.Tools, gt)
+		}
+	}
 
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
