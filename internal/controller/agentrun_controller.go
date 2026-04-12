@@ -91,6 +91,18 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
+	// Ensure the agent label is set on the AgentRun CR for concurrency tracking.
+	// Without this label, checkConcurrency cannot find active runs for this agent.
+	if run.Labels == nil || run.Labels[resources.LabelAgent] != agent.Name {
+		if run.Labels == nil {
+			run.Labels = make(map[string]string)
+		}
+		run.Labels[resources.LabelAgent] = agent.Name
+		if err := r.Update(ctx, run); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	// Set the mode from the agent
 	run.Status.Mode = agent.Spec.Mode
 

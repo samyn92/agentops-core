@@ -134,8 +134,18 @@ func (s *Server) checkToolCall(w http.ResponseWriter, req *jsonRPCRequest) bool 
 
 	var params toolsCallParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		s.logger.Warn("failed to parse tools/call params", "error", err)
-		return true // can't parse = allow (fail open)
+		s.logger.Warn("tools/call blocked: failed to parse params (fail-closed)", "error", err)
+		errResp := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      req.ID,
+			"error": map[string]interface{}{
+				"code":    -32600,
+				"message": "tools/call blocked: malformed parameters",
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(errResp)
+		return false // fail-closed: deny on parse error
 	}
 
 	if !s.policy.Check(params.Name, params.Arguments) {
