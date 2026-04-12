@@ -94,8 +94,8 @@ func (s *Server) handlePassthrough(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePost(w http.ResponseWriter, r *http.Request) {
-	// Read body so we can inspect it
-	body, err := io.ReadAll(r.Body)
+	// Read body so we can inspect it (capped at 1 MiB)
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		http.Error(w, `{"error":"failed to read body"}`, http.StatusBadRequest)
 		return
