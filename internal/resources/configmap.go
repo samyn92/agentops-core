@@ -130,9 +130,61 @@ type MCPEntry struct {
 	UIHint      string   `json:"uiHint,omitempty"`
 }
 
-// ProviderEntry describes a configured provider.
+// ProviderEntry describes a configured provider in config.json.
+// The runtime uses the Type field for type-based SDK dispatch with full
+// option wiring (base URL, headers, Vertex/Bedrock config, Responses API,
+// and per-call defaults).
 type ProviderEntry struct {
-	Name string `json:"name"`
+	Name            string                     `json:"name"`
+	Type            string                     `json:"type,omitempty"`
+	BaseURL         string                     `json:"baseURL,omitempty"`
+	Headers         map[string]string          `json:"headers,omitempty"`
+	Organization    string                     `json:"organization,omitempty"`
+	Project         string                     `json:"project,omitempty"`
+	UseResponsesAPI bool                       `json:"useResponsesAPI,omitempty"`
+	AzureAPIVersion string                     `json:"azureAPIVersion,omitempty"`
+	Vertex          *ProviderVertexEntry       `json:"vertex,omitempty"`
+	Bedrock         bool                       `json:"bedrock,omitempty"`
+	CallDefaults    *ProviderCallDefaultsEntry `json:"callDefaults,omitempty"`
+}
+
+// ProviderVertexEntry holds Vertex AI config for config.json.
+type ProviderVertexEntry struct {
+	Project  string `json:"project"`
+	Location string `json:"location"`
+}
+
+// ProviderCallDefaultsEntry holds per-call defaults for config.json.
+type ProviderCallDefaultsEntry struct {
+	Anthropic *AnthropicCallDefaultsEntry `json:"anthropic,omitempty"`
+	OpenAI    *OpenAICallDefaultsEntry    `json:"openai,omitempty"`
+	Google    *GoogleCallDefaultsEntry    `json:"google,omitempty"`
+}
+
+// AnthropicCallDefaultsEntry holds Anthropic per-call defaults for config.json.
+type AnthropicCallDefaultsEntry struct {
+	Effort                 string `json:"effort,omitempty"`
+	ThinkingBudgetTokens   *int64 `json:"thinkingBudgetTokens,omitempty"`
+	DisableParallelToolUse *bool  `json:"disableParallelToolUse,omitempty"`
+}
+
+// OpenAICallDefaultsEntry holds OpenAI per-call defaults for config.json.
+type OpenAICallDefaultsEntry struct {
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	ServiceTier     string `json:"serviceTier,omitempty"`
+}
+
+// GoogleCallDefaultsEntry holds Google per-call defaults for config.json.
+type GoogleCallDefaultsEntry struct {
+	ThinkingLevel        string                     `json:"thinkingLevel,omitempty"`
+	ThinkingBudgetTokens *int64                     `json:"thinkingBudgetTokens,omitempty"`
+	SafetySettings       []GoogleSafetySettingEntry `json:"safetySettings,omitempty"`
+}
+
+// GoogleSafetySettingEntry holds a Google safety setting for config.json.
+type GoogleSafetySettingEntry struct {
+	Category  string `json:"category"`
+	Threshold string `json:"threshold"`
 }
 
 // ToolHooksEntry holds runtime hook config.
@@ -285,7 +337,8 @@ type AgentConfig struct {
 // BuildAgentConfigMap generates the operator extension ConfigMap from an Agent spec.
 // agentTools is the resolved list of AgentTool CRs (used to look up the memory server URL
 // and to build tool/MCP entries).
-func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, agentResources []agentsv1alpha1.AgentResource, agentTools []agentsv1alpha1.AgentTool) (*corev1.ConfigMap, error) {
+// providers is the resolved list of Provider CRs referenced by the agent via providerRefs.
+func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, agentResources []agentsv1alpha1.AgentResource, agentTools []agentsv1alpha1.AgentTool, providers []agentsv1alpha1.Provider) (*corev1.ConfigMap, error) {
 	config := AgentConfig{
 		Runtime:            "fantasy",
 		PrimaryModel:       agent.Spec.Model,
@@ -396,9 +449,14 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, agentResources []agentsv1a
 		}
 	}
 
-	// Providers
-	for _, p := range agent.Spec.Providers {
-		config.Providers = append(config.Providers, ProviderEntry{Name: p.Name})
+	// Providers: build enriched entries from Provider CRs (providerRefs).
+	providerBindingMap := make(map[string]*agentsv1alpha1.ProviderBinding, len(agent.Spec.ProviderRefs))
+	for i := range agent.Spec.ProviderRefs {
+		providerBindingMap[agent.Spec.ProviderRefs[i].Name] = &agent.Spec.ProviderRefs[i]
+	}
+	for _, prov := range providers {
+		entry := buildProviderEntry(&prov, providerBindingMap[prov.Name])
+		config.Providers = append(config.Providers, entry)
 	}
 
 	// Fallback models
@@ -465,6 +523,155 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, agentResources []agentsv1a
 			"config.json": string(data),
 		},
 	}, nil
+}
+
+// buildProviderEntry creates an enriched ProviderEntry from a Provider CR,
+// merging any per-agent overrides from the ProviderBinding.
+func buildProviderEntry(prov *agentsv1alpha1.Provider, binding *agentsv1alpha1.ProviderBinding) ProviderEntry {
+	entry := ProviderEntry{
+		Name: prov.Name,
+		Type: string(prov.Spec.Type),
+	}
+
+	// Endpoint
+	if prov.Spec.Endpoint != nil {
+		entry.BaseURL = prov.Spec.Endpoint.BaseURL
+		entry.Headers = prov.Spec.Endpoint.Headers
+	}
+
+	// Type-specific config
+	if prov.Spec.Config != nil {
+		cfg := prov.Spec.Config
+		entry.Organization = cfg.Organization
+		entry.Project = cfg.Project
+		entry.UseResponsesAPI = cfg.UseResponsesAPI
+		entry.AzureAPIVersion = cfg.AzureAPIVersion
+		entry.Bedrock = cfg.Bedrock
+		if cfg.Vertex != nil {
+			entry.Vertex = &ProviderVertexEntry{
+				Project:  cfg.Vertex.Project,
+				Location: cfg.Vertex.Location,
+			}
+		}
+	}
+
+	// Per-call defaults: start from Provider CR defaults
+	var callDefaults *ProviderCallDefaultsEntry
+	if prov.Spec.Defaults != nil {
+		callDefaults = convertCallDefaults(prov.Spec.Defaults)
+	}
+
+	// Merge agent-level overrides from ProviderBinding
+	if binding != nil && binding.Overrides != nil {
+		overrides := convertCallDefaults(binding.Overrides)
+		callDefaults = mergeCallDefaults(callDefaults, overrides)
+	}
+
+	entry.CallDefaults = callDefaults
+	return entry
+}
+
+// convertCallDefaults converts CRD call defaults to config.json format.
+func convertCallDefaults(src *agentsv1alpha1.ProviderCallDefaults) *ProviderCallDefaultsEntry {
+	if src == nil {
+		return nil
+	}
+	result := &ProviderCallDefaultsEntry{}
+	if src.Anthropic != nil {
+		result.Anthropic = &AnthropicCallDefaultsEntry{
+			Effort:                 src.Anthropic.Effort,
+			ThinkingBudgetTokens:   src.Anthropic.ThinkingBudgetTokens,
+			DisableParallelToolUse: src.Anthropic.DisableParallelToolUse,
+		}
+	}
+	if src.OpenAI != nil {
+		result.OpenAI = &OpenAICallDefaultsEntry{
+			ReasoningEffort: src.OpenAI.ReasoningEffort,
+			ServiceTier:     src.OpenAI.ServiceTier,
+		}
+	}
+	if src.Google != nil {
+		result.Google = &GoogleCallDefaultsEntry{
+			ThinkingLevel:        src.Google.ThinkingLevel,
+			ThinkingBudgetTokens: src.Google.ThinkingBudgetTokens,
+		}
+		for _, ss := range src.Google.SafetySettings {
+			result.Google.SafetySettings = append(result.Google.SafetySettings, GoogleSafetySettingEntry{
+				Category:  ss.Category,
+				Threshold: ss.Threshold,
+			})
+		}
+	}
+	return result
+}
+
+// mergeCallDefaults merges override values on top of base defaults.
+// Non-zero override fields win over base fields.
+func mergeCallDefaults(base, override *ProviderCallDefaultsEntry) *ProviderCallDefaultsEntry {
+	if base == nil {
+		return override
+	}
+	if override == nil {
+		return base
+	}
+
+	result := *base // shallow copy
+
+	// Anthropic overrides
+	if override.Anthropic != nil {
+		if result.Anthropic == nil {
+			result.Anthropic = override.Anthropic
+		} else {
+			merged := *result.Anthropic
+			if override.Anthropic.Effort != "" {
+				merged.Effort = override.Anthropic.Effort
+			}
+			if override.Anthropic.ThinkingBudgetTokens != nil {
+				merged.ThinkingBudgetTokens = override.Anthropic.ThinkingBudgetTokens
+			}
+			if override.Anthropic.DisableParallelToolUse != nil {
+				merged.DisableParallelToolUse = override.Anthropic.DisableParallelToolUse
+			}
+			result.Anthropic = &merged
+		}
+	}
+
+	// OpenAI overrides
+	if override.OpenAI != nil {
+		if result.OpenAI == nil {
+			result.OpenAI = override.OpenAI
+		} else {
+			merged := *result.OpenAI
+			if override.OpenAI.ReasoningEffort != "" {
+				merged.ReasoningEffort = override.OpenAI.ReasoningEffort
+			}
+			if override.OpenAI.ServiceTier != "" {
+				merged.ServiceTier = override.OpenAI.ServiceTier
+			}
+			result.OpenAI = &merged
+		}
+	}
+
+	// Google overrides
+	if override.Google != nil {
+		if result.Google == nil {
+			result.Google = override.Google
+		} else {
+			merged := *result.Google
+			if override.Google.ThinkingLevel != "" {
+				merged.ThinkingLevel = override.Google.ThinkingLevel
+			}
+			if override.Google.ThinkingBudgetTokens != nil {
+				merged.ThinkingBudgetTokens = override.Google.ThinkingBudgetTokens
+			}
+			if len(override.Google.SafetySettings) > 0 {
+				merged.SafetySettings = override.Google.SafetySettings
+			}
+			result.Google = &merged
+		}
+	}
+
+	return &result
 }
 
 // BuildAgentRunConfigMap creates a per-run ConfigMap that extends the base agent

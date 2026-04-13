@@ -271,30 +271,99 @@ spec:
                   When the model string does not include a provider prefix, this value
                   is used to select which configured provider handles the request.
                 type: string
-              providers:
-                description: LLM providers with API key references. At least one required.
+              providerRefs:
+                description: |-
+                  Provider references. Each entry names a Provider CR in the same namespace.
+                  At least one providerRef is required.
                 items:
-                  description: ProviderRef configures an LLM provider.
+                  description: ProviderBinding references a Provider CR with optional
+                    per-agent overrides.
                   properties:
-                    apiKeySecret:
-                      description: Secret containing the API key.
-                      properties:
-                        key:
-                          description: Key within the Secret.
-                          type: string
-                        name:
-                          description: Name of the Secret.
-                          type: string
-                      required:
-                      - key
-                      - name
-                      type: object
                     name:
-                      description: Provider name (e.g. anthropic, openai, google).
+                      description: Name of the Provider CR in the same namespace.
                       minLength: 1
                       type: string
+                    overrides:
+                      description: Override per-call defaults from the Provider CR
+                        for this agent.
+                      properties:
+                        anthropic:
+                          description: Anthropic-specific call options.
+                          properties:
+                            disableParallelToolUse:
+                              description: Disable parallel tool use.
+                              type: boolean
+                            effort:
+                              description: 'Output effort level: low, medium, high,
+                                max.'
+                              enum:
+                              - low
+                              - medium
+                              - high
+                              - max
+                              type: string
+                            thinkingBudgetTokens:
+                              description: Extended thinking budget in tokens.
+                              format: int64
+                              minimum: 1024
+                              type: integer
+                          type: object
+                        google:
+                          description: Google-specific call options.
+                          properties:
+                            safetySettings:
+                              description: Safety settings applied to all calls.
+                              items:
+                                description: GoogleSafetySetting configures a safety
+                                  threshold for a harm category.
+                                properties:
+                                  category:
+                                    description: Harm category (e.g. "HARM_CATEGORY_DANGEROUS_CONTENT").
+                                    type: string
+                                  threshold:
+                                    description: Block threshold (e.g. "BLOCK_ONLY_HIGH").
+                                    type: string
+                                required:
+                                - category
+                                - threshold
+                                type: object
+                              type: array
+                            thinkingBudgetTokens:
+                              description: Thinking budget in tokens. Mutually exclusive
+                                with ThinkingLevel.
+                              format: int64
+                              minimum: 128
+                              type: integer
+                            thinkingLevel:
+                              description: 'Thinking level: LOW, MEDIUM, HIGH, MINIMAL.'
+                              enum:
+                              - LOW
+                              - MEDIUM
+                              - HIGH
+                              - MINIMAL
+                              type: string
+                          type: object
+                        openai:
+                          description: OpenAI-specific call options.
+                          properties:
+                            reasoningEffort:
+                              description: 'Reasoning effort: none, minimal, low,
+                                medium, high, xhigh.'
+                              enum:
+                              - none
+                              - minimal
+                              - low
+                              - medium
+                              - high
+                              - xhigh
+                              type: string
+                            serviceTier:
+                              description: Service tier selection (e.g. "default",
+                                "flex").
+                              type: string
+                          type: object
+                      type: object
                   required:
-                  - apiKeySecret
                   - name
                   type: object
                 minItems: 1
@@ -584,7 +653,7 @@ spec:
             required:
             - mode
             - model
-            - providers
+            - providerRefs
             type: object
           status:
             description: AgentStatus defines the observed state of Agent.

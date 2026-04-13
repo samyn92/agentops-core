@@ -14,11 +14,8 @@ spec:
   imagePullPolicy: IfNotPresent
   builtinTools: []
 
-  providers:
+  providerRefs:
     - name: openai
-      apiKeySecret:
-        name: llm-api-keys
-        key: OPENAI_API_KEY
 
   systemPrompt: |
     You triage issues, propose next actions, and keep outputs concise.

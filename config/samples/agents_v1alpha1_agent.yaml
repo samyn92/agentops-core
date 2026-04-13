@@ -20,11 +20,8 @@ spec:
   temperature: 0.3
   maxSteps: 50
 
-  providers:
+  providerRefs:
     - name: anthropic
-      apiKeySecret:
-        name: llm-api-keys
-        key: ANTHROPIC_API_KEY
 
   fallbackModels:
     - openai/gpt-4o

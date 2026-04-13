@@ -20,11 +20,8 @@ spec:
   maxOutputTokens: 8192
   maxSteps: 50
 
-  providers:
+  providerRefs:
     - name: anthropic
-      apiKeySecret:
-        name: llm-keys
-        key: anthropic-api-key
 
   # Tool bindings reference AgentTool CRs by name
   tools:

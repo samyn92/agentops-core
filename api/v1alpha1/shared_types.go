@@ -57,16 +57,19 @@ type OCIRef struct {
 }
 
 // -------------------------------------------------------------------
-// Provider & model
+// Provider binding
 // -------------------------------------------------------------------
 
-// ProviderRef configures an LLM provider.
-type ProviderRef struct {
-	// Provider name (e.g. anthropic, openai, google).
+// ProviderBinding references a Provider CR with optional per-agent overrides.
+type ProviderBinding struct {
+	// Name of the Provider CR in the same namespace.
+	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
-	// Secret containing the API key.
-	ApiKeySecret SecretKeyRef `json:"apiKeySecret"`
+
+	// Override per-call defaults from the Provider CR for this agent.
+	// +optional
+	Overrides *ProviderCallDefaults `json:"overrides,omitempty"`
 }
 
 // -------------------------------------------------------------------

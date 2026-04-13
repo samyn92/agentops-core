@@ -15,11 +15,8 @@ spec:
     - glob
   maxSteps: 30
 
-  providers:
+  providerRefs:
     - name: anthropic
-      apiKeySecret:
-        name: llm-keys
-        key: anthropic-api-key
 
   systemPrompt: |
     You are a security auditor. Scan the codebase for

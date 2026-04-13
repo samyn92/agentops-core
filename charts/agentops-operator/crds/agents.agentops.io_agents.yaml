@@ -63,6 +63,7 @@ spec:
                 description: |-
                   Built-in tools to enable.
                   Valid: bash, read, edit, write, grep, ls, glob, fetch.
+                  Omit for all defaults; set to empty list [] to disable all built-in tools.
                 items:
                   type: string
                 type: array
@@ -106,6 +107,48 @@ spec:
                   - configMapRef
                   type: object
                 type: array
+              discovery:
+                description: |-
+                  Discovery controls how this agent appears to other agents via
+                  the list_task_agents tool and who is allowed to delegate to it.
+                properties:
+                  allowedCallers:
+                    description: |-
+                      AllowedCallers restricts which agents can discover and delegate to this one.
+                      Only effective when scope is "explicit". Each entry is an agent name.
+                      When scope is "namespace", this field is ignored (all agents can delegate).
+                      When scope is "hidden", no agent can discover or delegate.
+                    items:
+                      type: string
+                    type: array
+                  description:
+                    description: |-
+                      Short description shown to other agents in list_task_agents instead of
+                      the truncated system prompt. Should describe what this agent is good at
+                      in 1-2 sentences.
+                    maxLength: 500
+                    type: string
+                  scope:
+                    default: namespace
+                    description: |-
+                      Scope controls visibility in list_task_agents.
+                      "namespace" (default): visible to all agents in the namespace.
+                      "explicit": only visible to agents listed in allowedCallers.
+                      "hidden": never appears in list_task_agents.
+                    enum:
+                    - namespace
+                    - explicit
+                    - hidden
+                    type: string
+                  tags:
+                    description: |-
+                      Tags for categorization and filtering. Other agents can use these to
+                      find the right specialist (e.g. "kubernetes", "security", "frontend").
+                    items:
+                      type: string
+                    maxItems: 20
+                    type: array
+                type: object
               enableQuestionTool:
                 description: |-
                   Enable the built-in "question" tool that lets the agent ask the user
@@ -228,30 +271,99 @@ spec:
                   When the model string does not include a provider prefix, this value
                   is used to select which configured provider handles the request.
                 type: string
-              providers:
-                description: LLM providers with API key references. At least one required.
+              providerRefs:
+                description: |-
+                  Provider references. Each entry names a Provider CR in the same namespace.
+                  At least one providerRef is required.
                 items:
-                  description: ProviderRef configures an LLM provider.
+                  description: ProviderBinding references a Provider CR with optional
+                    per-agent overrides.
                   properties:
-                    apiKeySecret:
-                      description: Secret containing the API key.
-                      properties:
-                        key:
-                          description: Key within the Secret.
-                          type: string
-                        name:
-                          description: Name of the Secret.
-                          type: string
-                      required:
-                      - key
-                      - name
-                      type: object
                     name:
-                      description: Provider name (e.g. anthropic, openai, google).
+                      description: Name of the Provider CR in the same namespace.
                       minLength: 1
                       type: string
+                    overrides:
+                      description: Override per-call defaults from the Provider CR
+                        for this agent.
+                      properties:
+                        anthropic:
+                          description: Anthropic-specific call options.
+                          properties:
+                            disableParallelToolUse:
+                              description: Disable parallel tool use.
+                              type: boolean
+                            effort:
+                              description: 'Output effort level: low, medium, high,
+                                max.'
+                              enum:
+                              - low
+                              - medium
+                              - high
+                              - max
+                              type: string
+                            thinkingBudgetTokens:
+                              description: Extended thinking budget in tokens.
+                              format: int64
+                              minimum: 1024
+                              type: integer
+                          type: object
+                        google:
+                          description: Google-specific call options.
+                          properties:
+                            safetySettings:
+                              description: Safety settings applied to all calls.
+                              items:
+                                description: GoogleSafetySetting configures a safety
+                                  threshold for a harm category.
+                                properties:
+                                  category:
+                                    description: Harm category (e.g. "HARM_CATEGORY_DANGEROUS_CONTENT").
+                                    type: string
+                                  threshold:
+                                    description: Block threshold (e.g. "BLOCK_ONLY_HIGH").
+                                    type: string
+                                required:
+                                - category
+                                - threshold
+                                type: object
+                              type: array
+                            thinkingBudgetTokens:
+                              description: Thinking budget in tokens. Mutually exclusive
+                                with ThinkingLevel.
+                              format: int64
+                              minimum: 128
+                              type: integer
+                            thinkingLevel:
+                              description: 'Thinking level: LOW, MEDIUM, HIGH, MINIMAL.'
+                              enum:
+                              - LOW
+                              - MEDIUM
+                              - HIGH
+                              - MINIMAL
+                              type: string
+                          type: object
+                        openai:
+                          description: OpenAI-specific call options.
+                          properties:
+                            reasoningEffort:
+                              description: 'Reasoning effort: none, minimal, low,
+                                medium, high, xhigh.'
+                              enum:
+                              - none
+                              - minimal
+                              - low
+                              - medium
+                              - high
+                              - xhigh
+                              type: string
+                            serviceTier:
+                              description: Service tier selection (e.g. "default",
+                                "flex").
+                              type: string
+                          type: object
+                      type: object
                   required:
-                  - apiKeySecret
                   - name
                   type: object
                 minItems: 1
@@ -414,7 +526,9 @@ spec:
                       type: string
                     type: array
                   auditTools:
-                    description: Tools to audit-log via afterToolCall hook.
+                    description: |-
+                      Tools to audit-log via afterToolCall hook. When memory is enabled,
+                      audit events are also persisted as searchable observations.
                     items:
                       type: string
                     type: array
@@ -422,6 +536,72 @@ spec:
                     description: Patterns blocked in bash commands (substring match).
                     items:
                       type: string
+                    type: array
+                  contextInjectTools:
+                    description: |-
+                      Pre-execution memory queries: before a matched tool runs, relevant
+                      memories are fetched and recorded in the trace for observability.
+                    items:
+                      description: ContextInjectRuleSpec describes a pre-execution
+                        memory query for a tool.
+                      properties:
+                        limit:
+                          default: 3
+                          description: 'Max number of memory items to fetch. Default:
+                            3.'
+                          maximum: 10
+                          minimum: 1
+                          type: integer
+                        query:
+                          default: from_tool_args
+                          description: |-
+                            How to derive the search query. "from_tool_args" (default) uses the tool's
+                            primary argument. Any other value is used as a static query string.
+                          type: string
+                        tool:
+                          description: Tool name to match.
+                          type: string
+                      required:
+                      - tool
+                      type: object
+                    type: array
+                  memorySaveRules:
+                    description: |-
+                      Declarative rules for auto-saving tool results as memory observations.
+                      Each rule matches a tool name and optionally filters by output/args regex.
+                    items:
+                      description: |-
+                        MemorySaveRuleSpec describes a declarative rule for auto-saving tool results
+                        as memory observations in agentops-memory.
+                      properties:
+                        matchArgs:
+                          additionalProperties:
+                            type: string
+                          description: Map of arg_name → regex pattern. All patterns
+                            must match for the rule to fire.
+                          type: object
+                        matchOutput:
+                          description: Regex pattern to match against tool output.
+                            If empty, all output is captured.
+                          type: string
+                        scope:
+                          default: project
+                          description: 'Scope for the observation. Default: "project".'
+                          enum:
+                          - project
+                          - global
+                          type: string
+                        tool:
+                          description: Tool name to match (e.g. "bash", "web_search").
+                          type: string
+                        type:
+                          default: discovery
+                          description: 'Observation type to save (e.g. "bugfix", "discovery").
+                            Default: "discovery".'
+                          type: string
+                      required:
+                      - tool
+                      type: object
                     type: array
                 type: object
               tools:
@@ -473,7 +653,7 @@ spec:
             required:
             - mode
             - model
-            - providers
+            - providerRefs
             type: object
           status:
             description: AgentStatus defines the observed state of Agent.

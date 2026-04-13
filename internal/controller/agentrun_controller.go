@@ -277,6 +277,15 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 		}
 	}
 
+	// Resolve Provider CRs for the job
+	var resolvedProviders []agentsv1alpha1.Provider
+	for _, ref := range agent.Spec.ProviderRefs {
+		prov := &agentsv1alpha1.Provider{}
+		if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: agent.Namespace}, prov); err == nil {
+			resolvedProviders = append(resolvedProviders, *prov)
+		}
+	}
+
 	// Check if Job already exists
 	existingJob := &batchv1.Job{}
 	err := r.Get(ctx, types.NamespacedName{Name: run.Name, Namespace: run.Namespace}, existingJob)
@@ -329,7 +338,7 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 		}
 
 		// Create Job
-		job := resources.BuildAgentRunJob(run, agent, agentTools, gitCfg, runConfigMapName)
+		job := resources.BuildAgentRunJob(run, agent, agentTools, resolvedProviders, gitCfg, runConfigMapName)
 		if err := controllerutil.SetControllerReference(run, job, r.Scheme); err != nil {
 			return ctrl.Result{}, err
 		}

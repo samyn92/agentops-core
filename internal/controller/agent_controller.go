@@ -50,6 +50,7 @@ type AgentReconciler struct {
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agents/finalizers,verbs=update
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agenttools,verbs=get;list;watch
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agentresources,verbs=get;list;watch
+// +kubebuilder:rbac:groups=agents.agentops.io,resources=providers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
@@ -145,11 +146,41 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	// Set ProvidersReady condition
+	// Resolve Provider CRs from providerRefs
+	resolvedProviders, err := r.resolveProviders(ctx, agent)
+	if err != nil {
+		meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
+			Type:    agentsv1alpha1.AgentConditionProvidersReady,
+			Status:  metav1.ConditionFalse,
+			Reason:  "ProviderNotFound",
+			Message: err.Error(),
+		})
+		if patchErr := patchStatus(ctx, r.Client, agent, statusPatch); patchErr != nil {
+			return ctrl.Result{}, patchErr
+		}
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	}
+
+	// Validate Provider CRs are ready
+	if err := r.validateProvidersReady(resolvedProviders); err != nil {
+		meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
+			Type:    agentsv1alpha1.AgentConditionProvidersReady,
+			Status:  metav1.ConditionFalse,
+			Reason:  "ProviderNotReady",
+			Message: err.Error(),
+		})
+		if patchErr := patchStatus(ctx, r.Client, agent, statusPatch); patchErr != nil {
+			return ctrl.Result{}, patchErr
+		}
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	}
+
+	totalProviders := len(resolvedProviders)
 	meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
 		Type:    agentsv1alpha1.AgentConditionProvidersReady,
 		Status:  metav1.ConditionTrue,
 		Reason:  "Configured",
-		Message: fmt.Sprintf("%d providers registered", len(agent.Spec.Providers)),
+		Message: fmt.Sprintf("%d providers registered", totalProviders),
 	})
 
 	// Branch by mode
@@ -158,9 +189,9 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	switch agent.Spec.Mode {
 	case agentsv1alpha1.AgentModeDaemon:
-		result, reconcileErr = r.reconcileDaemon(ctx, agent, agentTools, agentResources)
+		result, reconcileErr = r.reconcileDaemon(ctx, agent, agentTools, agentResources, resolvedProviders)
 	case agentsv1alpha1.AgentModeTask:
-		result, reconcileErr = r.reconcileTask(ctx, agent, agentTools, agentResources)
+		result, reconcileErr = r.reconcileTask(ctx, agent, agentTools, agentResources, resolvedProviders)
 	default:
 		return ctrl.Result{}, fmt.Errorf("unknown agent mode: %s", agent.Spec.Mode)
 	}
@@ -190,7 +221,7 @@ func hasMCPSourceTools(agentTools []agentsv1alpha1.AgentTool) bool {
 // reconcileDaemon handles daemon mode: RBAC -> PVC -> ConfigMaps -> Deployment -> Service -> NetworkPolicy -> status.
 //
 //nolint:unparam // Result is always nil for now but will be used for requeue logic.
-func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, agentResources []agentsv1alpha1.AgentResource) (ctrl.Result, error) {
+func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, agentResources []agentsv1alpha1.AgentResource, providers []agentsv1alpha1.Provider) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	// 0. RBAC (ServiceAccount + Role + RoleBinding) — only if the user
@@ -211,7 +242,7 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 	}
 
 	// 2. Operator extension ConfigMap
-	configMap, err := resources.BuildAgentConfigMap(agent, agentResources, agentTools)
+	configMap, err := resources.BuildAgentConfigMap(agent, agentResources, agentTools, providers)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -244,7 +275,7 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 	}
 
 	// 5. Deployment
-	deployment := resources.BuildAgentDeployment(agent, agentTools)
+	deployment := resources.BuildAgentDeployment(agent, agentTools, providers)
 	if err := reconcileOwnedResource(ctx, r.Client, r.Scheme, agent, deployment); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -312,7 +343,7 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 // reconcileTask handles task mode: RBAC -> ConfigMaps -> status (Ready).
 //
 //nolint:unparam // Result is always nil for now but will be used for requeue logic.
-func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, agentResources []agentsv1alpha1.AgentResource) (ctrl.Result, error) {
+func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, agentResources []agentsv1alpha1.AgentResource, providers []agentsv1alpha1.Provider) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	// 0. RBAC (ServiceAccount + Role + RoleBinding) — only if the user
@@ -324,7 +355,7 @@ func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alph
 	}
 
 	// 1. Operator extension ConfigMap
-	configMap, err := resources.BuildAgentConfigMap(agent, agentResources, agentTools)
+	configMap, err := resources.BuildAgentConfigMap(agent, agentResources, agentTools, providers)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -439,6 +470,29 @@ func (r *AgentReconciler) validateAgentResourcesReady(agentRes []agentsv1alpha1.
 	for _, res := range agentRes {
 		if res.Status.Phase != agentsv1alpha1.AgentResourcePhaseReady {
 			return fmt.Errorf("AgentResource %q is not Ready (phase: %s)", res.Name, res.Status.Phase)
+		}
+	}
+	return nil
+}
+
+// resolveProviders fetches all Provider CRs referenced by the agent via providerRefs.
+func (r *AgentReconciler) resolveProviders(ctx context.Context, agent *agentsv1alpha1.Agent) ([]agentsv1alpha1.Provider, error) {
+	providers := make([]agentsv1alpha1.Provider, 0, len(agent.Spec.ProviderRefs))
+	for _, ref := range agent.Spec.ProviderRefs {
+		prov := &agentsv1alpha1.Provider{}
+		if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: agent.Namespace}, prov); err != nil {
+			return nil, fmt.Errorf("Provider %q not found: %w", ref.Name, err)
+		}
+		providers = append(providers, *prov)
+	}
+	return providers, nil
+}
+
+// validateProvidersReady checks all referenced Provider CRs are in Ready phase.
+func (r *AgentReconciler) validateProvidersReady(providers []agentsv1alpha1.Provider) error {
+	for _, prov := range providers {
+		if prov.Status.Phase != agentsv1alpha1.ProviderPhaseReady {
+			return fmt.Errorf("Provider %q is not Ready (phase: %s)", prov.Name, prov.Status.Phase)
 		}
 	}
 	return nil

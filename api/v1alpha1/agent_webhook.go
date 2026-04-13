@@ -153,23 +153,26 @@ func (r *Agent) validateRuntime(specPath *field.Path) field.ErrorList {
 func (r *Agent) validateProviders(specPath *field.Path) field.ErrorList {
 	var errs field.ErrorList
 
-	if len(r.Spec.Providers) == 0 {
-		errs = append(errs, field.Required(specPath.Child("providers"),
-			"all agents need at least one LLM provider"))
+	// providerRefs must be non-empty (enforced by kubebuilder MinItems=1, but belt-and-suspenders)
+	if len(r.Spec.ProviderRefs) == 0 {
+		errs = append(errs, field.Required(specPath.Child("providerRefs"),
+			"at least one Provider CR reference is required"))
+	}
+
+	// Build set of all known provider names
+	providerNames := make(map[string]bool)
+	for _, ref := range r.Spec.ProviderRefs {
+		providerNames[ref.Name] = true
 	}
 
 	// FallbackModels must reference configured providers
-	providerNames := make(map[string]bool)
-	for _, p := range r.Spec.Providers {
-		providerNames[p.Name] = true
-	}
 	for i, model := range r.Spec.FallbackModels {
 		parts := strings.SplitN(model, "/", 2)
 		if len(parts) == 2 {
 			if !providerNames[parts[0]] {
 				errs = append(errs, field.Invalid(
 					specPath.Child("fallbackModels").Index(i), model,
-					fmt.Sprintf("provider %q is not configured in providers", parts[0])))
+					fmt.Sprintf("provider %q is not configured in providerRefs", parts[0])))
 			}
 		}
 	}

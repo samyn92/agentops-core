@@ -24,6 +24,7 @@ rules:
   resources:
   - pods
   - pods/log
+  - secrets
   verbs:
   - get
   - list
@@ -36,6 +37,7 @@ rules:
   - agents
   - agenttools
   - channels
+  - providers
   verbs:
   - create
   - delete
@@ -52,6 +54,7 @@ rules:
   - agents/finalizers
   - agenttools/finalizers
   - channels/finalizers
+  - providers/finalizers
   verbs:
   - update
 - apiGroups:
@@ -62,6 +65,7 @@ rules:
   - agents/status
   - agenttools/status
   - channels/status
+  - providers/status
   verbs:
   - get
   - patch

@@ -244,6 +244,13 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "AgentResource")
 		os.Exit(1)
 	}
+	if err := (&controller.ProviderReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Provider")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	// Register admission webhooks when enabled
@@ -262,6 +269,10 @@ func main() {
 		}
 		if err := (&agentsv1alpha1.AgentResource{}).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "AgentResource")
+			os.Exit(1)
+		}
+		if err := (&agentsv1alpha1.Provider{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Provider")
 			os.Exit(1)
 		}
 		setupLog.Info("admission webhooks enabled")

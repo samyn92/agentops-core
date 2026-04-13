@@ -34,8 +34,8 @@ func testAgent() *agentsv1alpha1.Agent {
 		Spec: agentsv1alpha1.AgentSpec{
 			Mode:  agentsv1alpha1.AgentModeDaemon,
 			Model: "anthropic/claude-sonnet-4-20250514",
-			Providers: []agentsv1alpha1.ProviderRef{
-				{Name: "anthropic", ApiKeySecret: agentsv1alpha1.SecretKeyRef{Name: "keys", Key: "key"}},
+			ProviderRefs: []agentsv1alpha1.ProviderBinding{
+				{Name: "anthropic"},
 			},
 			BuiltinTools:    []string{"bash", "read", "edit", "write"},
 			Temperature:     &temp,
@@ -50,7 +50,7 @@ func testAgent() *agentsv1alpha1.Agent {
 
 func TestBuildAgentConfigMap(t *testing.T) {
 	agent := testAgent()
-	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestBuildAgentConfigMap(t *testing.T) {
 
 func TestBuildAgentDeployment(t *testing.T) {
 	agent := testAgent()
-	deploy := BuildAgentDeployment(agent, nil)
+	deploy := BuildAgentDeployment(agent, nil, nil)
 
 	containers := deploy.Spec.Template.Spec.Containers
 	if len(containers) < 1 {
@@ -112,7 +112,7 @@ func TestBuildAgentDeployment(t *testing.T) {
 
 func TestBuildAgentDeployment_EnvVars(t *testing.T) {
 	agent := testAgent()
-	deploy := BuildAgentDeployment(agent, nil)
+	deploy := BuildAgentDeployment(agent, nil, nil)
 
 	main := deploy.Spec.Template.Spec.Containers[0]
 	envMap := make(map[string]string)
@@ -136,7 +136,7 @@ func TestBuildAgentDeployment_EnvVars(t *testing.T) {
 func TestBuildAgentDeployment_CustomImage(t *testing.T) {
 	agent := testAgent()
 	agent.Spec.Image = "custom-registry.io/my-agent:v2"
-	deploy := BuildAgentDeployment(agent, nil)
+	deploy := BuildAgentDeployment(agent, nil, nil)
 
 	if deploy.Spec.Template.Spec.Containers[0].Image != "custom-registry.io/my-agent:v2" {
 		t.Errorf("expected custom image, got %q", deploy.Spec.Template.Spec.Containers[0].Image)
@@ -145,7 +145,7 @@ func TestBuildAgentDeployment_CustomImage(t *testing.T) {
 
 func TestBuildAgentDeployment_HealthCheck(t *testing.T) {
 	agent := testAgent()
-	deploy := BuildAgentDeployment(agent, nil)
+	deploy := BuildAgentDeployment(agent, nil, nil)
 
 	main := deploy.Spec.Template.Spec.Containers[0]
 	if main.LivenessProbe == nil {
@@ -173,7 +173,7 @@ func TestBuildAgentRunJob(t *testing.T) {
 		},
 	}
 
-	job := BuildAgentRunJob(run, agent, nil, nil, "")
+	job := BuildAgentRunJob(run, agent, nil, nil, nil, "")
 
 	main := job.Spec.Template.Spec.Containers[0]
 	if main.Command[0] != "/app/agent-runtime" || main.Command[1] != "task" {
@@ -297,7 +297,7 @@ func TestBuildAgentConfigMap_WithResources(t *testing.T) {
 		},
 	}
 
-	cm, err := BuildAgentConfigMap(agent, resources, nil)
+	cm, err := BuildAgentConfigMap(agent, resources, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestBuildAgentConfigMap_WithResources(t *testing.T) {
 
 func TestBuildAgentConfigMap_NoResources(t *testing.T) {
 	agent := testAgent()
-	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -381,7 +381,7 @@ func TestBuildAgentConfigMap_MemoryProtocolAppended(t *testing.T) {
 		ServerRef: "engram",
 	}
 
-	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestBuildAgentConfigMap_NoMemoryNoProtocol(t *testing.T) {
 	agent := testAgent()
 	// No memory spec set
 
-	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -446,7 +446,7 @@ func TestBuildAgentConfigMap_MemoryFullAutonomy(t *testing.T) {
 	agent := testAgent()
 	agent.Spec.Memory = &agentsv1alpha1.MemorySpec{ServerRef: "engram"}
 
-	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -485,7 +485,7 @@ func TestBuildAgentConfigMap_MemoryNoAutoSave(t *testing.T) {
 		AutoSave:  &f,
 	}
 
-	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -521,7 +521,7 @@ func TestBuildAgentConfigMap_MemoryNoAutoSearch(t *testing.T) {
 		AutoSearch: &f,
 	}
 
-	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -558,7 +558,7 @@ func TestBuildAgentConfigMap_MemoryFullyPassive(t *testing.T) {
 		AutoSearch: &f,
 	}
 
-	cm, err := BuildAgentConfigMap(agent, nil, nil)
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

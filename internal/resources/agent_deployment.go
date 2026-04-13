@@ -28,12 +28,12 @@ import (
 )
 
 // BuildAgentDeployment creates the Deployment for a daemon agent.
-func BuildAgentDeployment(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool) *appsv1.Deployment {
+func BuildAgentDeployment(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, providers []agentsv1alpha1.Provider) *appsv1.Deployment {
 	labels := CommonLabels(agent.Name, "runtime")
 	var replicas int32 = 1
 
 	// Build pod spec
-	podSpec := buildAgentPodSpec(agent, agentTools, false)
+	podSpec := buildAgentPodSpec(agent, agentTools, providers, false)
 
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -82,7 +82,7 @@ func hasMCPTools(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentT
 
 // buildAgentPodSpec creates the complete PodSpec for daemon or task mode.
 // taskMode=true uses emptyDir for /data instead of PVC.
-func buildAgentPodSpec(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, taskMode bool) corev1.PodSpec {
+func buildAgentPodSpec(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, providers []agentsv1alpha1.Provider, taskMode bool) corev1.PodSpec {
 	// Volumes
 	volumes := buildVolumes(agent, agentTools, taskMode)
 
@@ -90,7 +90,7 @@ func buildAgentPodSpec(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.
 	initContainers := buildInitContainers(agent, agentTools)
 
 	// Main container
-	mainContainer := buildMainContainer(agent, agentTools, taskMode)
+	mainContainer := buildMainContainer(agent, agentTools, providers, taskMode)
 
 	// Sidecar containers: MCP gateway proxies for MCP-source tools
 	var sidecars []corev1.Container
@@ -315,7 +315,7 @@ func buildCraneInitContainer(name, ref, destPath, volumeName, mountPath string, 
 	return c
 }
 
-func buildMainContainer(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, taskMode bool) corev1.Container {
+func buildMainContainer(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, providers []agentsv1alpha1.Provider, taskMode bool) corev1.Container {
 	volumeMounts := []corev1.VolumeMount{
 		{Name: VolumeTools, MountPath: MountTools},
 		{Name: VolumeConfig, MountPath: MountConfig},
@@ -355,7 +355,7 @@ func buildMainContainer(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1
 	}
 
 	// Environment variables
-	env := buildEnvVars(agent)
+	env := buildEnvVars(agent, providers)
 
 	// Build command: Fantasy runtime
 	var command []string
@@ -425,7 +425,7 @@ func buildMainContainer(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1
 // Environment variables
 // ====================================================================
 
-func buildEnvVars(agent *agentsv1alpha1.Agent) []corev1.EnvVar {
+func buildEnvVars(agent *agentsv1alpha1.Agent, providers []agentsv1alpha1.Provider) []corev1.EnvVar {
 	env := make([]corev1.EnvVar, 0, 4+len(agent.Spec.Env)+len(agent.Spec.Secrets))
 
 	// Agent metadata
@@ -468,14 +468,14 @@ func buildEnvVars(agent *agentsv1alpha1.Agent) []corev1.EnvVar {
 		})
 	}
 
-	// Provider API keys as env vars
-	for _, p := range agent.Spec.Providers {
+	// Provider API keys from Provider CRs (providerRefs)
+	for _, prov := range providers {
 		env = append(env, corev1.EnvVar{
-			Name: ProviderEnvVarName(p.Name),
+			Name: ProviderEnvVarName(prov.Name),
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: p.ApiKeySecret.Name},
-					Key:                  p.ApiKeySecret.Key,
+					LocalObjectReference: corev1.LocalObjectReference{Name: prov.Spec.ApiKeySecret.Name},
+					Key:                  prov.Spec.ApiKeySecret.Key,
 				},
 			},
 		})

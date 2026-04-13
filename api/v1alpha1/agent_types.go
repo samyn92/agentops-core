@@ -105,9 +105,10 @@ type AgentSpec struct {
 	// +optional
 	TitleModel string `json:"titleModel,omitempty"`
 
-	// LLM providers with API key references. At least one required.
+	// Provider references. Each entry names a Provider CR in the same namespace.
+	// At least one providerRef is required.
 	// +kubebuilder:validation:MinItems=1
-	Providers []ProviderRef `json:"providers"`
+	ProviderRefs []ProviderBinding `json:"providerRefs"`
 
 	// Fallback models tried in order if the primary model fails.
 	// Each must reference a provider listed in providers.

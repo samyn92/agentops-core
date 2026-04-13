@@ -31,8 +31,8 @@ func validAgent() *Agent {
 		Spec: AgentSpec{
 			Mode:  AgentModeDaemon,
 			Model: "anthropic/claude-sonnet-4-20250514",
-			Providers: []ProviderRef{
-				{Name: "anthropic", ApiKeySecret: SecretKeyRef{Name: "keys", Key: "key"}},
+			ProviderRefs: []ProviderBinding{
+				{Name: "anthropic"},
 			},
 			BuiltinTools: []string{"bash", "read", "edit", "write"},
 		},
@@ -122,7 +122,7 @@ func TestValidate_TaskMode_NoStorage(t *testing.T) {
 
 func TestValidate_NoProviders(t *testing.T) {
 	agent := validAgent()
-	agent.Spec.Providers = nil
+	agent.Spec.ProviderRefs = nil
 
 	_, err := agent.validate()
 	if err == nil {
@@ -170,8 +170,8 @@ func TestValidate_FallbackModel_UnknownProvider(t *testing.T) {
 
 func TestValidate_FallbackModel_ValidProvider(t *testing.T) {
 	agent := validAgent()
-	agent.Spec.Providers = append(agent.Spec.Providers,
-		ProviderRef{Name: "openai", ApiKeySecret: SecretKeyRef{Name: "keys", Key: "key"}},
+	agent.Spec.ProviderRefs = append(agent.Spec.ProviderRefs,
+		ProviderBinding{Name: "openai"},
 	)
 	agent.Spec.FallbackModels = []string{"openai/gpt-4o"}
 
