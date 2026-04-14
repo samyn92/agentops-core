@@ -99,7 +99,7 @@ Key spec fields:
 | Model | `model`, `primaryProvider`, `titleModel`, `providers`, `fallbackModels` |
 | Identity | `systemPrompt`, `contextFiles` |
 | Tools | `tools` (AgentTool bindings with per-agent permissions), `permissionTools`, `enableQuestionTool` |
-| Memory | `memory` (agentops-memory: serverRef, project, contextLimit, windowSize, autoSummarize) |
+| Memory | `memory` (agentops-memory: serverRef, project, contextLimit, autoSummarize) |
 | Tool Hooks | `toolHooks` (blocked commands, allowed paths, audit tools) |
 | Resources | `resourceBindings` (bind AgentResource CRs for context injection) |
 | Schedule | `schedule` (cron), `schedulePrompt` |
@@ -439,7 +439,6 @@ spec:
     serverRef: agentops-memory  # AgentTool CR name or in-cluster service
     project: my-agent          # defaults to agent name
     contextLimit: 5
-    windowSize: 20
     autoSummarize: true
 ```
 

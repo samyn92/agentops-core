@@ -375,7 +375,7 @@ func TestBuildAgentConfigMap_NoResources(t *testing.T) {
 
 // ── Memory Protocol tests ──
 
-func TestBuildAgentConfigMap_MemoryProtocolAppended(t *testing.T) {
+func TestBuildAgentConfigMap_MemoryProtocolInPlatformProtocol(t *testing.T) {
 	agent := testAgent()
 	agent.Spec.Memory = &agentsv1alpha1.MemorySpec{
 		ServerRef: "engram",
@@ -400,18 +400,26 @@ func TestBuildAgentConfigMap_MemoryProtocolAppended(t *testing.T) {
 		t.Errorf("expected project=test-agent, got %q", cfg.Memory.Project)
 	}
 
-	// System prompt should contain original + memory protocol
-	if !strings.HasPrefix(cfg.SystemPrompt, "You are helpful.") {
-		t.Errorf("expected system prompt to start with original, got %q", cfg.SystemPrompt[:50])
+	// System prompt should be UNMODIFIED — no memory protocol appended
+	if cfg.SystemPrompt != "You are helpful." {
+		t.Errorf("expected unmodified system prompt, got %q", cfg.SystemPrompt)
 	}
-	if !strings.Contains(cfg.SystemPrompt, "## Memory System") {
-		t.Error("expected system prompt to contain Memory System header")
+
+	// Platform protocol should contain identity + memory protocol
+	if cfg.PlatformProtocol == "" {
+		t.Fatal("expected platformProtocol to be set")
 	}
-	if !strings.Contains(cfg.SystemPrompt, "mem_save") {
-		t.Error("expected system prompt to reference mem_save")
+	if !strings.Contains(cfg.PlatformProtocol, "You are test-agent, a daemon agent") {
+		t.Error("expected agent identity in platform protocol")
 	}
-	if !strings.Contains(cfg.SystemPrompt, "mem_search") {
-		t.Error("expected system prompt to reference mem_search")
+	if !strings.Contains(cfg.PlatformProtocol, "## Memory System") {
+		t.Error("expected Memory System header in platform protocol")
+	}
+	if !strings.Contains(cfg.PlatformProtocol, "mem_save") {
+		t.Error("expected platform protocol to reference mem_save")
+	}
+	if !strings.Contains(cfg.PlatformProtocol, "mem_search") {
+		t.Error("expected platform protocol to reference mem_search")
 	}
 }
 
@@ -431,11 +439,12 @@ func TestBuildAgentConfigMap_NoMemoryNoProtocol(t *testing.T) {
 	}
 
 	// System prompt should NOT contain memory protocol
-	if strings.Contains(cfg.SystemPrompt, "## Memory System") {
-		t.Error("expected system prompt to NOT contain Memory System header when memory is disabled")
-	}
 	if cfg.SystemPrompt != "You are helpful." {
 		t.Errorf("expected unmodified system prompt, got %q", cfg.SystemPrompt)
+	}
+	// Platform protocol should contain identity but NOT memory protocol
+	if strings.Contains(cfg.PlatformProtocol, "## Memory System") {
+		t.Error("expected platform protocol to NOT contain Memory System header when memory is disabled")
 	}
 }
 
@@ -462,17 +471,21 @@ func TestBuildAgentConfigMap_MemoryFullAutonomy(t *testing.T) {
 	if !cfg.Memory.AutoSearch {
 		t.Error("expected autoSearch=true")
 	}
-	if !strings.Contains(cfg.SystemPrompt, "call mem_save after") {
-		t.Error("expected save instructions in prompt")
+	if !strings.Contains(cfg.PlatformProtocol, "call mem_save after") {
+		t.Error("expected save instructions in platform protocol")
 	}
-	if !strings.Contains(cfg.SystemPrompt, "call mem_search when") {
-		t.Error("expected search instructions in prompt")
+	if !strings.Contains(cfg.PlatformProtocol, "call mem_search when") {
+		t.Error("expected search instructions in platform protocol")
 	}
-	if strings.Contains(cfg.SystemPrompt, "Do NOT call mem_save") {
+	if strings.Contains(cfg.PlatformProtocol, "Do NOT call mem_save") {
 		t.Error("should not contain save-disabled instructions")
 	}
-	if strings.Contains(cfg.SystemPrompt, "Do NOT call mem_search") {
+	if strings.Contains(cfg.PlatformProtocol, "Do NOT call mem_search") {
 		t.Error("should not contain search-disabled instructions")
+	}
+	// SystemPrompt should be untouched
+	if cfg.SystemPrompt != "You are helpful." {
+		t.Errorf("expected unmodified system prompt, got %q", cfg.SystemPrompt)
 	}
 }
 
@@ -501,13 +514,13 @@ func TestBuildAgentConfigMap_MemoryNoAutoSave(t *testing.T) {
 	if !cfg.Memory.AutoSearch {
 		t.Error("expected autoSearch=true")
 	}
-	if strings.Contains(cfg.SystemPrompt, "call mem_save after") {
+	if strings.Contains(cfg.PlatformProtocol, "call mem_save after") {
 		t.Error("should not contain save instructions when autoSave=false")
 	}
-	if !strings.Contains(cfg.SystemPrompt, "Do NOT call mem_save") {
+	if !strings.Contains(cfg.PlatformProtocol, "Do NOT call mem_save") {
 		t.Error("expected save-disabled instructions")
 	}
-	if !strings.Contains(cfg.SystemPrompt, "call mem_search when") {
+	if !strings.Contains(cfg.PlatformProtocol, "call mem_search when") {
 		t.Error("expected search instructions")
 	}
 }
@@ -537,13 +550,13 @@ func TestBuildAgentConfigMap_MemoryNoAutoSearch(t *testing.T) {
 	if cfg.Memory.AutoSearch {
 		t.Error("expected autoSearch=false")
 	}
-	if !strings.Contains(cfg.SystemPrompt, "call mem_save after") {
+	if !strings.Contains(cfg.PlatformProtocol, "call mem_save after") {
 		t.Error("expected save instructions")
 	}
-	if strings.Contains(cfg.SystemPrompt, "call mem_search when") {
+	if strings.Contains(cfg.PlatformProtocol, "call mem_search when") {
 		t.Error("should not contain search instructions when autoSearch=false")
 	}
-	if !strings.Contains(cfg.SystemPrompt, "Do NOT call mem_search") {
+	if !strings.Contains(cfg.PlatformProtocol, "Do NOT call mem_search") {
 		t.Error("expected search-disabled instructions")
 	}
 }
@@ -574,20 +587,209 @@ func TestBuildAgentConfigMap_MemoryFullyPassive(t *testing.T) {
 	if cfg.Memory.AutoSearch {
 		t.Error("expected autoSearch=false")
 	}
-	if !strings.Contains(cfg.SystemPrompt, "Do NOT call mem_save") {
+	if !strings.Contains(cfg.PlatformProtocol, "Do NOT call mem_save") {
 		t.Error("expected save-disabled instructions")
 	}
-	if !strings.Contains(cfg.SystemPrompt, "Do NOT call mem_search") {
+	if !strings.Contains(cfg.PlatformProtocol, "Do NOT call mem_search") {
 		t.Error("expected search-disabled instructions")
 	}
-	if strings.Contains(cfg.SystemPrompt, "call mem_save after") {
+	if strings.Contains(cfg.PlatformProtocol, "call mem_save after") {
 		t.Error("should not contain save instructions")
 	}
-	if strings.Contains(cfg.SystemPrompt, "call mem_search when") {
+	if strings.Contains(cfg.PlatformProtocol, "call mem_search when") {
 		t.Error("should not contain search instructions")
 	}
-	// Should still have the header
-	if !strings.Contains(cfg.SystemPrompt, "## Memory System") {
+	// Should still have the header in platform protocol
+	if !strings.Contains(cfg.PlatformProtocol, "## Memory System") {
 		t.Error("expected memory protocol header even in passive mode")
+	}
+	// SystemPrompt should be untouched
+	if cfg.SystemPrompt != "You are helpful." {
+		t.Errorf("expected unmodified system prompt, got %q", cfg.SystemPrompt)
+	}
+}
+
+// ── Delegation Protocol tests ──
+
+func TestBuildAgentConfigMap_DelegationProactive(t *testing.T) {
+	agent := testAgent()
+	agent.Spec.Delegation = &agentsv1alpha1.DelegationSpec{
+		Strategy:       agentsv1alpha1.DelegationStrategyProactive,
+		PreferParallel: true,
+		MaxFanOut:      5,
+	}
+
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(cm.Data["config.json"]), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	// Platform protocol should contain delegation protocol
+	if !strings.Contains(cfg.PlatformProtocol, "## Delegation") {
+		t.Error("expected delegation header in platform protocol")
+	}
+	if !strings.Contains(cfg.PlatformProtocol, "delegate immediately") {
+		t.Error("expected proactive delegation instructions")
+	}
+	if !strings.Contains(cfg.PlatformProtocol, "run_agents to execute them in parallel") {
+		t.Error("expected parallel delegation instructions")
+	}
+	if !strings.Contains(cfg.PlatformProtocol, "Maximum parallel delegations per fan-out: 5") {
+		t.Error("expected maxFanOut in platform protocol")
+	}
+
+	// SystemPrompt should be untouched
+	if cfg.SystemPrompt != "You are helpful." {
+		t.Errorf("expected unmodified system prompt, got %q", cfg.SystemPrompt)
+	}
+
+	// Delegation config should be set for runtime enforcement
+	if cfg.Delegation == nil {
+		t.Fatal("expected delegation config")
+	}
+	if cfg.Delegation.Strategy != "proactive" {
+		t.Errorf("expected strategy=proactive, got %q", cfg.Delegation.Strategy)
+	}
+	if !cfg.Delegation.PreferParallel {
+		t.Error("expected preferParallel=true")
+	}
+	if cfg.Delegation.MaxFanOut != 5 {
+		t.Errorf("expected maxFanOut=5, got %d", cfg.Delegation.MaxFanOut)
+	}
+}
+
+func TestBuildAgentConfigMap_DelegationConservative(t *testing.T) {
+	agent := testAgent()
+	agent.Spec.Delegation = &agentsv1alpha1.DelegationSpec{
+		Strategy: agentsv1alpha1.DelegationStrategyConservative,
+	}
+
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(cm.Data["config.json"]), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	if !strings.Contains(cfg.PlatformProtocol, "Attempt tasks yourself first") {
+		t.Error("expected conservative delegation instructions")
+	}
+	if !strings.Contains(cfg.PlatformProtocol, "Delegate tasks one at a time") {
+		t.Error("expected sequential delegation instructions (preferParallel=false)")
+	}
+}
+
+func TestBuildAgentConfigMap_DelegationManual(t *testing.T) {
+	agent := testAgent()
+	agent.Spec.Delegation = &agentsv1alpha1.DelegationSpec{
+		Strategy: agentsv1alpha1.DelegationStrategyManual,
+	}
+
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(cm.Data["config.json"]), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	if !strings.Contains(cfg.PlatformProtocol, "do NOT delegate tasks unless the user explicitly asks") {
+		t.Error("expected manual delegation instructions")
+	}
+}
+
+func TestBuildAgentConfigMap_NoDelegationSpec(t *testing.T) {
+	agent := testAgent()
+	// No delegation spec
+
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(cm.Data["config.json"]), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	if strings.Contains(cfg.PlatformProtocol, "## Delegation") {
+		t.Error("expected no delegation protocol when delegation spec is unset")
+	}
+	if cfg.Delegation != nil {
+		t.Error("expected nil delegation config when spec is unset")
+	}
+}
+
+// ── Platform Protocol identity tests ──
+
+func TestBuildAgentConfigMap_PlatformProtocolIdentity(t *testing.T) {
+	agent := testAgent()
+	agent.Spec.Discovery = &agentsv1alpha1.DiscoverySpec{
+		Description: "A helpful test agent for unit tests.",
+	}
+
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(cm.Data["config.json"]), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	if !strings.Contains(cfg.PlatformProtocol, "You are test-agent, a daemon agent in the agents namespace.") {
+		t.Errorf("expected agent identity in platform protocol, got %q", cfg.PlatformProtocol)
+	}
+	if !strings.Contains(cfg.PlatformProtocol, "A helpful test agent for unit tests.") {
+		t.Error("expected discovery description in platform protocol identity")
+	}
+}
+
+// ── Combined delegation + memory tests ──
+
+func TestBuildAgentConfigMap_DelegationAndMemory(t *testing.T) {
+	agent := testAgent()
+	agent.Spec.Delegation = &agentsv1alpha1.DelegationSpec{
+		Strategy:       agentsv1alpha1.DelegationStrategyProactive,
+		PreferParallel: true,
+		MaxFanOut:      3,
+	}
+	agent.Spec.Memory = &agentsv1alpha1.MemorySpec{ServerRef: "engram"}
+
+	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(cm.Data["config.json"]), &cfg); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	// Platform protocol should contain both delegation and memory
+	if !strings.Contains(cfg.PlatformProtocol, "## Delegation") {
+		t.Error("expected delegation header")
+	}
+	if !strings.Contains(cfg.PlatformProtocol, "## Memory System") {
+		t.Error("expected memory header")
+	}
+	if !strings.Contains(cfg.PlatformProtocol, "You are test-agent") {
+		t.Error("expected agent identity")
+	}
+
+	// SystemPrompt untouched
+	if cfg.SystemPrompt != "You are helpful." {
+		t.Errorf("expected unmodified system prompt, got %q", cfg.SystemPrompt)
 	}
 }

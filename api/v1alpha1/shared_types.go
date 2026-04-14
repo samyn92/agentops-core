@@ -353,6 +353,7 @@ const (
 )
 
 // DiscoverySpec controls how this agent appears to other agents and who can delegate to it.
+// This is the INBOUND side: how other agents find and interact with me.
 type DiscoverySpec struct {
 	// Short description shown to other agents in list_task_agents instead of
 	// the truncated system prompt. Should describe what this agent is good at
@@ -383,6 +384,53 @@ type DiscoverySpec struct {
 	AllowedCallers []string `json:"allowedCallers,omitempty"`
 }
 
+// DelegationStrategy controls how eagerly an agent delegates work to other agents.
+// +kubebuilder:validation:Enum=proactive;conservative;manual
+type DelegationStrategy string
+
+const (
+	// DelegationStrategyProactive: actively decompose tasks and delegate subtasks
+	// to specialists when their expertise matches. Don't attempt work that a
+	// specialist agent would handle better.
+	DelegationStrategyProactive DelegationStrategy = "proactive"
+	// DelegationStrategyConservative: attempt tasks yourself first. Only delegate
+	// when you lack the required tools, permissions, or domain expertise.
+	DelegationStrategyConservative DelegationStrategy = "conservative"
+	// DelegationStrategyManual: never delegate unless the user explicitly asks.
+	// Focus on completing work with your own tools.
+	DelegationStrategyManual DelegationStrategy = "manual"
+)
+
+// DelegationSpec controls how this agent delegates work to other agents.
+// This is the OUTBOUND side: how I find and use other agents.
+// When set, the operator generates a delegation protocol section that is
+// injected into the system message as a separate platform protocol part,
+// never appended to the user's systemPrompt.
+type DelegationSpec struct {
+	// Strategy controls how eagerly this agent delegates work.
+	//   proactive:    actively decompose and delegate subtasks to specialists
+	//   conservative: only delegate when lacking tools or expertise
+	//   manual:       only delegate when user explicitly asks
+	// +kubebuilder:validation:Required
+	Strategy DelegationStrategy `json:"strategy"`
+
+	// PreferParallel favors run_agents (parallel fan-out) over sequential
+	// run_agent calls. When true, the delegation protocol instructs the agent
+	// to use run_agents for independent subtasks. When false or omitted,
+	// the agent delegates one task at a time.
+	// +optional
+	PreferParallel bool `json:"preferParallel,omitempty"`
+
+	// MaxFanOut limits the number of concurrent delegations in a single
+	// run_agents call. Runtime-enforced cap on batch size.
+	// Default: 5. Hard max: 10 (existing run_agents limit).
+	// +optional
+	// +kubebuilder:default=5
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=10
+	MaxFanOut int `json:"maxFanOut,omitempty"`
+}
+
 // -------------------------------------------------------------------
 // Memory (Engram)
 // -------------------------------------------------------------------
@@ -408,13 +456,6 @@ type MemorySpec struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=50
 	ContextLimit int `json:"contextLimit,omitempty"`
-
-	// Sliding window size for working memory (recent messages kept in-memory).
-	// +optional
-	// +kubebuilder:default=20
-	// +kubebuilder:validation:Minimum=2
-	// +kubebuilder:validation:Maximum=200
-	WindowSize int `json:"windowSize,omitempty"`
 
 	// Enable auto-summarization of sessions at end.
 	// +optional

@@ -107,10 +107,49 @@ spec:
                   - configMapRef
                   type: object
                 type: array
+              delegation:
+                description: |-
+                  Delegation controls how this agent delegates work to other agents.
+                  Controls outbound behavior: how I use OTHER agents.
+                  When set, the operator generates a delegation protocol that is injected
+                  as a separate platform protocol section (never appended to systemPrompt).
+                  Omit entirely to get no delegation protocol injection.
+                properties:
+                  maxFanOut:
+                    default: 5
+                    description: |-
+                      MaxFanOut limits the number of concurrent delegations in a single
+                      run_agents call. Runtime-enforced cap on batch size.
+                      Default: 5. Hard max: 10 (existing run_agents limit).
+                    maximum: 10
+                    minimum: 1
+                    type: integer
+                  preferParallel:
+                    description: |-
+                      PreferParallel favors run_agents (parallel fan-out) over sequential
+                      run_agent calls. When true, the delegation protocol instructs the agent
+                      to use run_agents for independent subtasks. When false or omitted,
+                      the agent delegates one task at a time.
+                    type: boolean
+                  strategy:
+                    description: |-
+                      Strategy controls how eagerly this agent delegates work.
+                        proactive:    actively decompose and delegate subtasks to specialists
+                        conservative: only delegate when lacking tools or expertise
+                        manual:       only delegate when user explicitly asks
+                    enum:
+                    - proactive
+                    - conservative
+                    - manual
+                    type: string
+                required:
+                - strategy
+                type: object
               discovery:
                 description: |-
                   Discovery controls how this agent appears to other agents via
                   the list_task_agents tool and who is allowed to delegate to it.
+                  Controls inbound visibility: how OTHER agents find and delegate to ME.
                 properties:
                   allowedCallers:
                     description: |-
@@ -231,13 +270,6 @@ spec:
                       service URL.
                     minLength: 1
                     type: string
-                  windowSize:
-                    default: 20
-                    description: Sliding window size for working memory (recent messages
-                      kept in-memory).
-                    maximum: 200
-                    minimum: 2
-                    type: integer
                 required:
                 - serverRef
                 type: object

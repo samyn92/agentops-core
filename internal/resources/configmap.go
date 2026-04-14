@@ -30,16 +30,18 @@ import (
 // Engram Memory Protocol
 // ====================================================================
 
-// engramMemoryProtocol is the behavioral instruction block appended to
-// the agent's system prompt when memory is enabled (spec.memory.serverRef
-// is set). It teaches the agent when to use the mem_save, mem_search,
-// and mem_context tools proactively.
+// engramMemoryProtocol is the behavioral instruction block for the platform
+// protocol when memory is enabled (spec.memory.serverRef is set). It teaches
+// the agent when to use the mem_save, mem_search, and mem_context tools.
+//
+// NOTE: As of the platform protocol refactor, this is no longer appended to
+// the user's systemPrompt. It is emitted as part of the separate
+// platformProtocol field in config.json.
 //
 // Adapted from the canonical Engram Memory Protocol:
 // https://github.com/Gentleman-Programming/engram
 // memoryProtocolHeader is always included when memory is enabled.
 const memoryProtocolHeader = `
-
 ## Memory System
 
 You have persistent memory (survives restarts). Context from past sessions is auto-injected before each turn.
@@ -105,6 +107,115 @@ func buildMemoryProtocol(memory *agentsv1alpha1.MemorySpec) string {
 	}
 
 	return protocol
+}
+
+// ====================================================================
+// Delegation Protocol
+// ====================================================================
+
+// delegationProtocolProactive is the delegation protocol for strategy=proactive.
+const delegationProtocolProactive = `
+## Delegation
+
+You coordinate work by delegating to specialized agents. When you receive a task, analyze whether it can be decomposed into independent subtasks that match available agents' specializations. If yes, delegate immediately — don't attempt work that a specialist agent would handle better. Call list_task_agents to discover who's available before planning.
+
+When writing delegation prompts, include:
+- Clear task description with acceptance criteria
+- Relevant context the agent needs (not your full conversation)
+- Specific resource references (repo, branch) when applicable
+`
+
+// delegationProtocolConservative is the delegation protocol for strategy=conservative.
+const delegationProtocolConservative = `
+## Delegation
+
+You can delegate tasks to specialized agents when needed. Attempt tasks yourself first using your own tools. Only delegate to another agent when you lack the required tools, permissions, or domain expertise to complete a subtask. Don't delegate for convenience — delegate for capability gaps.
+
+When delegating, include clear context and acceptance criteria in the prompt.
+`
+
+// delegationProtocolManual is the delegation protocol for strategy=manual.
+const delegationProtocolManual = `
+## Delegation
+
+You have access to other agents via run_agent and run_agents, but do NOT delegate tasks unless the user explicitly asks you to. Focus on completing work with your own tools. When the user asks you to delegate, use list_task_agents to find the right specialist.
+`
+
+// delegationProtocolParallel is appended when preferParallel is true.
+const delegationProtocolParallel = `
+When delegating multiple independent tasks, use run_agents to execute them in parallel. Only use sequential run_agent when tasks have explicit dependencies on each other's results.
+`
+
+// delegationProtocolSequential is appended when preferParallel is false.
+const delegationProtocolSequential = `
+Delegate tasks one at a time using run_agent. Wait for results before delegating the next task unless you are confident tasks are independent.
+`
+
+// buildDelegationProtocol generates the delegation protocol text from DelegationSpec.
+func buildDelegationProtocol(delegation *agentsv1alpha1.DelegationSpec) string {
+	if delegation == nil {
+		return ""
+	}
+
+	var protocol string
+	switch delegation.Strategy {
+	case agentsv1alpha1.DelegationStrategyProactive:
+		protocol = delegationProtocolProactive
+	case agentsv1alpha1.DelegationStrategyConservative:
+		protocol = delegationProtocolConservative
+	case agentsv1alpha1.DelegationStrategyManual:
+		protocol = delegationProtocolManual
+	default:
+		return ""
+	}
+
+	if delegation.PreferParallel {
+		protocol += delegationProtocolParallel
+	} else {
+		protocol += delegationProtocolSequential
+	}
+
+	if delegation.MaxFanOut > 0 && delegation.MaxFanOut < 10 {
+		protocol += fmt.Sprintf("\nMaximum parallel delegations per fan-out: %d.\n", delegation.MaxFanOut)
+	}
+
+	return protocol
+}
+
+// ====================================================================
+// Platform Protocol (combines identity + delegation + memory)
+// ====================================================================
+
+// buildPlatformProtocol assembles the full platform protocol from the agent's
+// identity, delegation spec, and memory spec. This is emitted as a separate
+// field in config.json and injected by the runtime as a dedicated system
+// message part — the user's systemPrompt is NEVER mutated.
+func buildPlatformProtocol(agent *agentsv1alpha1.Agent) string {
+	var parts []string
+
+	// ── Agent Identity ──
+	identity := fmt.Sprintf("You are %s, a %s agent in the %s namespace.",
+		agent.Name, string(agent.Spec.Mode), agent.Namespace)
+	if agent.Spec.Discovery != nil && agent.Spec.Discovery.Description != "" {
+		identity += " " + agent.Spec.Discovery.Description
+	}
+	parts = append(parts, identity)
+
+	// ── Delegation Protocol ──
+	if delegation := buildDelegationProtocol(agent.Spec.Delegation); delegation != "" {
+		parts = append(parts, delegation)
+	}
+
+	// ── Memory Protocol ──
+	if agent.Spec.Memory != nil {
+		parts = append(parts, buildMemoryProtocol(agent.Spec.Memory))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return strings.Join(parts, "\n")
 }
 
 // ====================================================================
@@ -304,30 +415,40 @@ type DiscoveryConfigEntry struct {
 	AllowedCallers []string `json:"allowedCallers,omitempty"`
 }
 
+// DelegationConfigEntry holds delegation config for the runtime.
+// The runtime uses MaxFanOut to enforce the cap on run_agents batch size.
+type DelegationConfigEntry struct {
+	Strategy       string `json:"strategy"`
+	PreferParallel bool   `json:"preferParallel,omitempty"`
+	MaxFanOut      int    `json:"maxFanOut,omitempty"`
+}
+
 // AgentConfig is the JSON structure mounted at /etc/operator/config.json for the Fantasy runtime.
 type AgentConfig struct {
-	Runtime            string                `json:"runtime"`
-	Providers          []ProviderEntry       `json:"providers"`
-	PrimaryProvider    string                `json:"primaryProvider,omitempty"`
-	PrimaryModel       string                `json:"primaryModel"`
-	FallbackModels     []string              `json:"fallbackModels,omitempty"`
-	TitleModel         string                `json:"titleModel,omitempty"`
-	SystemPrompt       string                `json:"systemPrompt,omitempty"`
-	BuiltinTools       []string              `json:"builtinTools"`
-	Tools              []ToolEntry           `json:"tools"`
-	MCPServers         []MCPEntry            `json:"mcpServers,omitempty"`
-	ToolHooks          *ToolHooksEntry       `json:"toolHooks,omitempty"`
-	ContextFiles       []ContextEntry        `json:"contextFiles,omitempty"`
-	Temperature        *float64              `json:"temperature,omitempty"`
-	MaxOutputTokens    *int64                `json:"maxOutputTokens,omitempty"`
-	MaxSteps           *int                  `json:"maxSteps,omitempty"`
-	MaxToolResultChars int                   `json:"maxToolResultChars,omitempty"`
-	BudgetFraction     *float64              `json:"budgetFraction,omitempty"`
-	PermissionTools    []string              `json:"permissionTools,omitempty"`
-	EnableQuestionTool bool                  `json:"enableQuestionTool,omitempty"`
-	Resources          []AgentResourceEntry  `json:"resources,omitempty"`
-	Memory             *MemoryConfigEntry    `json:"memory,omitempty"`
-	Discovery          *DiscoveryConfigEntry `json:"discovery,omitempty"`
+	Runtime            string                 `json:"runtime"`
+	Providers          []ProviderEntry        `json:"providers"`
+	PrimaryProvider    string                 `json:"primaryProvider,omitempty"`
+	PrimaryModel       string                 `json:"primaryModel"`
+	FallbackModels     []string               `json:"fallbackModels,omitempty"`
+	TitleModel         string                 `json:"titleModel,omitempty"`
+	SystemPrompt       string                 `json:"systemPrompt,omitempty"`
+	PlatformProtocol   string                 `json:"platformProtocol,omitempty"`
+	BuiltinTools       []string               `json:"builtinTools"`
+	Tools              []ToolEntry            `json:"tools"`
+	MCPServers         []MCPEntry             `json:"mcpServers,omitempty"`
+	ToolHooks          *ToolHooksEntry        `json:"toolHooks,omitempty"`
+	ContextFiles       []ContextEntry         `json:"contextFiles,omitempty"`
+	Temperature        *float64               `json:"temperature,omitempty"`
+	MaxOutputTokens    *int64                 `json:"maxOutputTokens,omitempty"`
+	MaxSteps           *int                   `json:"maxSteps,omitempty"`
+	MaxToolResultChars int                    `json:"maxToolResultChars,omitempty"`
+	BudgetFraction     *float64               `json:"budgetFraction,omitempty"`
+	PermissionTools    []string               `json:"permissionTools,omitempty"`
+	EnableQuestionTool bool                   `json:"enableQuestionTool,omitempty"`
+	Resources          []AgentResourceEntry   `json:"resources,omitempty"`
+	Memory             *MemoryConfigEntry     `json:"memory,omitempty"`
+	Discovery          *DiscoveryConfigEntry  `json:"discovery,omitempty"`
+	Delegation         *DelegationConfigEntry `json:"delegation,omitempty"`
 }
 
 // ====================================================================
@@ -385,11 +506,21 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, agentResources []agentsv1a
 				AutoSave:      autoSave,
 				AutoSearch:    autoSearch,
 			}
+		}
+	}
 
-			// Append the Engram Memory Protocol to the system prompt
-			// so the agent knows when to use mem_save/mem_search/mem_context.
-			// The protocol sections are conditional based on autoSave/autoSearch.
-			config.SystemPrompt = strings.TrimRight(config.SystemPrompt, "\n ") + buildMemoryProtocol(agent.Spec.Memory)
+	// Platform protocol: identity + delegation + memory protocol.
+	// This is a SEPARATE field — the user's systemPrompt is never mutated.
+	if protocol := buildPlatformProtocol(agent); protocol != "" {
+		config.PlatformProtocol = protocol
+	}
+
+	// Delegation config (for runtime enforcement of maxFanOut)
+	if agent.Spec.Delegation != nil {
+		config.Delegation = &DelegationConfigEntry{
+			Strategy:       string(agent.Spec.Delegation.Strategy),
+			PreferParallel: agent.Spec.Delegation.PreferParallel,
+			MaxFanOut:      agent.Spec.Delegation.MaxFanOut,
 		}
 	}
 
