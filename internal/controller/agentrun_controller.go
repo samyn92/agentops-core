@@ -39,8 +39,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	agentsv1alpha1 "github.com/samyn92/agentops-core/api/v1alpha1"
 	"github.com/samyn92/agentops-core/internal/resources"
+	"github.com/samyn92/agentops-core/internal/tracing"
 )
 
 // AgentRunReconciler reconciles an AgentRun object.
@@ -59,6 +64,14 @@ type AgentRunReconciler struct {
 // +kubebuilder:rbac:groups="",resources=pods;pods/log,verbs=get;list;watch
 
 func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx, span := tracing.Tracer.Start(ctx, "operator.reconcile.agentrun",
+		trace.WithAttributes(
+			attribute.String("k8s.name", req.Name),
+			attribute.String("k8s.namespace", req.Namespace),
+		),
+	)
+	defer span.End()
+
 	log := logf.FromContext(ctx)
 
 	// Fetch AgentRun
@@ -67,12 +80,17 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "fetch agentrun")
 		return ctrl.Result{}, err
 	}
+
+	span.SetAttributes(attribute.String("agentrun.agent_ref", run.Spec.AgentRef))
 
 	// Skip terminal states
 	if run.Status.Phase == agentsv1alpha1.AgentRunPhaseSucceeded ||
 		run.Status.Phase == agentsv1alpha1.AgentRunPhaseFailed {
+		span.SetAttributes(attribute.String("agentrun.phase", string(run.Status.Phase)))
 		return ctrl.Result{}, nil
 	}
 
@@ -82,14 +100,26 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log.Info("Reconciling AgentRun", "name", run.Name, "phase", run.Status.Phase)
 
 	// Resolve the target Agent
+	_, resolveSpan := tracing.Tracer.Start(ctx, "operator.resolve.agent",
+		trace.WithAttributes(attribute.String("agent.name", run.Spec.AgentRef)),
+	)
 	agent := &agentsv1alpha1.Agent{}
 	if err := r.Get(ctx, types.NamespacedName{Name: run.Spec.AgentRef, Namespace: run.Namespace}, agent); err != nil {
+		resolveSpan.RecordError(err)
+		resolveSpan.SetStatus(codes.Error, "agent not found")
+		resolveSpan.End()
 		r.setRunFailedStatus(run, fmt.Sprintf("Agent %q not found", run.Spec.AgentRef))
 		if patchErr := patchStatus(ctx, r.Client, run, statusPatch); patchErr != nil {
+			span.RecordError(patchErr)
+			span.SetStatus(codes.Error, "patch status")
 			return ctrl.Result{}, patchErr
 		}
 		return ctrl.Result{}, nil
 	}
+	resolveSpan.SetAttributes(attribute.String("agent.mode", string(agent.Spec.Mode)))
+	resolveSpan.End()
+
+	span.SetAttributes(attribute.String("agent.mode", string(agent.Spec.Mode)))
 
 	// Ensure the agent label is set on the AgentRun CR for concurrency tracking.
 	// Without this label, checkConcurrency cannot find active runs for this agent.
@@ -147,6 +177,13 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	var result ctrl.Result
 	var reconcileErr error
 
+	_, modeSpan := tracing.Tracer.Start(ctx, "operator.dispatch."+string(agent.Spec.Mode),
+		trace.WithAttributes(
+			attribute.String("agentrun.name", run.Name),
+			attribute.String("agent.mode", string(agent.Spec.Mode)),
+		),
+	)
+
 	switch agent.Spec.Mode {
 	case agentsv1alpha1.AgentModeTask:
 		result, reconcileErr = r.reconcileTaskRun(ctx, run, agent)
@@ -156,15 +193,27 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		r.setRunFailedStatus(run, fmt.Sprintf("Unknown agent mode: %s", agent.Spec.Mode))
 	}
 
+	if reconcileErr != nil {
+		modeSpan.RecordError(reconcileErr)
+		modeSpan.SetStatus(codes.Error, "mode dispatch")
+	}
+	modeSpan.End()
+
 	// Always patch status so Mode and Phase are persisted, even when the
 	// reconcile function returns an error (e.g. Job creation failure).
 	if err := patchStatus(ctx, r.Client, run, statusPatch); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "patch status")
 		return ctrl.Result{}, err
 	}
 
 	if reconcileErr != nil {
+		span.RecordError(reconcileErr)
+		span.SetStatus(codes.Error, "reconcile")
 		return ctrl.Result{}, reconcileErr
 	}
+
+	span.SetAttributes(attribute.String("agentrun.phase", string(run.Status.Phase)))
 
 	return result, nil
 }

@@ -434,6 +434,9 @@ func buildEnvVars(agent *agentsv1alpha1.Agent, providers []agentsv1alpha1.Provid
 		corev1.EnvVar{Name: "AGENT_NAMESPACE", Value: agent.Namespace},
 		corev1.EnvVar{Name: "AGENT_MODE", Value: string(agent.Spec.Mode)},
 		corev1.EnvVar{Name: "AGENT_RUNTIME", Value: "fantasy"},
+		// WORKSPACE tells MCP tools (git, etc.) where the scratch/data directory is.
+		// Always set to /data — the standard data volume mounted on every agent pod.
+		corev1.EnvVar{Name: "WORKSPACE", Value: MountData},
 	)
 
 	// OpenTelemetry — always inject so the runtime exports traces to Tempo.
