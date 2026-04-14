@@ -113,11 +113,12 @@ func buildMemoryProtocol(memory *agentsv1alpha1.MemorySpec) string {
 // Delegation Protocol
 // ====================================================================
 
-// delegationProtocolProactive is the delegation protocol for strategy=proactive.
-const delegationProtocolProactive = `
+// delegationProtocolTeamHeader is the delegation protocol for team-based delegation.
+// Strategy/workflow details belong in the agent's systemPrompt, not here.
+const delegationProtocolTeamHeader = `
 ## Delegation
 
-You coordinate work by delegating to specialized agents. When you receive a task, analyze whether it can be decomposed into independent subtasks that match available agents' specializations. If yes, delegate immediately — don't attempt work that a specialist agent would handle better. Call list_task_agents to discover who's available before planning.
+You coordinate work by delegating to your team of specialized agents. Use list_task_agents to see who is available. Use run_agent for single tasks or run_agents for parallel fan-out of independent subtasks.
 
 When writing delegation prompts, include:
 - Clear task description with acceptance criteria
@@ -125,54 +126,18 @@ When writing delegation prompts, include:
 - Specific resource references (repo, branch) when applicable
 `
 
-// delegationProtocolConservative is the delegation protocol for strategy=conservative.
-const delegationProtocolConservative = `
-## Delegation
-
-You can delegate tasks to specialized agents when needed. Attempt tasks yourself first using your own tools. Only delegate to another agent when you lack the required tools, permissions, or domain expertise to complete a subtask. Don't delegate for convenience — delegate for capability gaps.
-
-When delegating, include clear context and acceptance criteria in the prompt.
-`
-
-// delegationProtocolManual is the delegation protocol for strategy=manual.
-const delegationProtocolManual = `
-## Delegation
-
-You have access to other agents via run_agent and run_agents, but do NOT delegate tasks unless the user explicitly asks you to. Focus on completing work with your own tools. When the user asks you to delegate, use list_task_agents to find the right specialist.
-`
-
-// delegationProtocolParallel is appended when preferParallel is true.
-const delegationProtocolParallel = `
-When delegating multiple independent tasks, use run_agents to execute them in parallel. Only use sequential run_agent when tasks have explicit dependencies on each other's results.
-`
-
-// delegationProtocolSequential is appended when preferParallel is false.
-const delegationProtocolSequential = `
-Delegate tasks one at a time using run_agent. Wait for results before delegating the next task unless you are confident tasks are independent.
-`
-
 // buildDelegationProtocol generates the delegation protocol text from DelegationSpec.
 func buildDelegationProtocol(delegation *agentsv1alpha1.DelegationSpec) string {
-	if delegation == nil {
+	if delegation == nil || len(delegation.Team) == 0 {
 		return ""
 	}
 
-	var protocol string
-	switch delegation.Strategy {
-	case agentsv1alpha1.DelegationStrategyProactive:
-		protocol = delegationProtocolProactive
-	case agentsv1alpha1.DelegationStrategyConservative:
-		protocol = delegationProtocolConservative
-	case agentsv1alpha1.DelegationStrategyManual:
-		protocol = delegationProtocolManual
-	default:
-		return ""
-	}
+	protocol := delegationProtocolTeamHeader
 
-	if delegation.PreferParallel {
-		protocol += delegationProtocolParallel
-	} else {
-		protocol += delegationProtocolSequential
+	// List team members so the agent knows who is available without calling list_task_agents.
+	protocol += "\nYour team:\n"
+	for _, member := range delegation.Team {
+		protocol += fmt.Sprintf("  - %s\n", member)
 	}
 
 	if delegation.MaxFanOut > 0 && delegation.MaxFanOut < 10 {
@@ -196,9 +161,6 @@ func buildPlatformProtocol(agent *agentsv1alpha1.Agent) string {
 	// ── Agent Identity ──
 	identity := fmt.Sprintf("You are %s, a %s agent in the %s namespace.",
 		agent.Name, string(agent.Spec.Mode), agent.Namespace)
-	if agent.Spec.Discovery != nil && agent.Spec.Discovery.Description != "" {
-		identity += " " + agent.Spec.Discovery.Description
-	}
 	parts = append(parts, identity)
 
 	// ── Delegation Protocol ──
@@ -405,22 +367,11 @@ type MemoryConfigEntry struct {
 	AutoSearch    bool   `json:"autoSearch"`
 }
 
-// DiscoveryConfigEntry holds discovery & delegation config for the runtime.
-// The runtime uses this to know its own scope/allowedCallers for filtering
-// when other agents query list_task_agents.
-type DiscoveryConfigEntry struct {
-	Description    string   `json:"description,omitempty"`
-	Tags           []string `json:"tags,omitempty"`
-	Scope          string   `json:"scope,omitempty"`
-	AllowedCallers []string `json:"allowedCallers,omitempty"`
-}
-
 // DelegationConfigEntry holds delegation config for the runtime.
-// The runtime uses MaxFanOut to enforce the cap on run_agents batch size.
+// The runtime uses Team for access control and MaxFanOut for batch size limits.
 type DelegationConfigEntry struct {
-	Strategy       string `json:"strategy"`
-	PreferParallel bool   `json:"preferParallel,omitempty"`
-	MaxFanOut      int    `json:"maxFanOut,omitempty"`
+	Team      []string `json:"team"`
+	MaxFanOut int      `json:"maxFanOut,omitempty"`
 }
 
 // AgentConfig is the JSON structure mounted at /etc/operator/config.json for the Fantasy runtime.
@@ -447,7 +398,6 @@ type AgentConfig struct {
 	EnableQuestionTool bool                   `json:"enableQuestionTool,omitempty"`
 	Resources          []AgentResourceEntry   `json:"resources,omitempty"`
 	Memory             *MemoryConfigEntry     `json:"memory,omitempty"`
-	Discovery          *DiscoveryConfigEntry  `json:"discovery,omitempty"`
 	Delegation         *DelegationConfigEntry `json:"delegation,omitempty"`
 }
 
@@ -515,22 +465,11 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, agentResources []agentsv1a
 		config.PlatformProtocol = protocol
 	}
 
-	// Delegation config (for runtime enforcement of maxFanOut)
+	// Delegation config (for runtime enforcement of team + maxFanOut)
 	if agent.Spec.Delegation != nil {
 		config.Delegation = &DelegationConfigEntry{
-			Strategy:       string(agent.Spec.Delegation.Strategy),
-			PreferParallel: agent.Spec.Delegation.PreferParallel,
-			MaxFanOut:      agent.Spec.Delegation.MaxFanOut,
-		}
-	}
-
-	// Discovery & delegation
-	if agent.Spec.Discovery != nil {
-		config.Discovery = &DiscoveryConfigEntry{
-			Description:    agent.Spec.Discovery.Description,
-			Tags:           agent.Spec.Discovery.Tags,
-			Scope:          string(agent.Spec.Discovery.Scope),
-			AllowedCallers: agent.Spec.Discovery.AllowedCallers,
+			Team:      agent.Spec.Delegation.Team,
+			MaxFanOut: agent.Spec.Delegation.MaxFanOut,
 		}
 	}
 

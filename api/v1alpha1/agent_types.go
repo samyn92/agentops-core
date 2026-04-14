@@ -128,17 +128,11 @@ type AgentSpec struct {
 	ContextFiles []ContextFileRef `json:"contextFiles,omitempty"`
 
 	// ====================================================================
-	// DISCOVERY & DELEGATION
+	// DELEGATION
 	// ====================================================================
 
-	// Discovery controls how this agent appears to other agents via
-	// the list_task_agents tool and who is allowed to delegate to it.
-	// Controls inbound visibility: how OTHER agents find and delegate to ME.
-	// +optional
-	Discovery *DiscoverySpec `json:"discovery,omitempty"`
-
 	// Delegation controls how this agent delegates work to other agents.
-	// Controls outbound behavior: how I use OTHER agents.
+	// The team list IS the access control — only listed agents can be delegated to.
 	// When set, the operator generates a delegation protocol that is injected
 	// as a separate platform protocol section (never appended to systemPrompt).
 	// Omit entirely to get no delegation protocol injection.

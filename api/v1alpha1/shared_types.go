@@ -336,90 +336,21 @@ type AgentResourceBinding struct {
 }
 
 // -------------------------------------------------------------------
-// Discovery & Delegation
+// Delegation
 // -------------------------------------------------------------------
 
-// DiscoveryScope controls who can discover this agent via list_task_agents.
-// +kubebuilder:validation:Enum=namespace;explicit;hidden
-type DiscoveryScope string
-
-const (
-	// DiscoveryScopeNamespace makes the agent visible to all agents in the namespace (default).
-	DiscoveryScopeNamespace DiscoveryScope = "namespace"
-	// DiscoveryScopeExplicit makes the agent visible only to agents listed in allowedCallers.
-	DiscoveryScopeExplicit DiscoveryScope = "explicit"
-	// DiscoveryScopeHidden makes the agent invisible in list_task_agents entirely.
-	DiscoveryScopeHidden DiscoveryScope = "hidden"
-)
-
-// DiscoverySpec controls how this agent appears to other agents and who can delegate to it.
-// This is the INBOUND side: how other agents find and interact with me.
-type DiscoverySpec struct {
-	// Short description shown to other agents in list_task_agents instead of
-	// the truncated system prompt. Should describe what this agent is good at
-	// in 1-2 sentences.
-	// +optional
-	// +kubebuilder:validation:MaxLength=500
-	Description string `json:"description,omitempty"`
-
-	// Tags for categorization and filtering. Other agents can use these to
-	// find the right specialist (e.g. "kubernetes", "security", "frontend").
-	// +optional
-	// +kubebuilder:validation:MaxItems=20
-	Tags []string `json:"tags,omitempty"`
-
-	// Scope controls visibility in list_task_agents.
-	// "namespace" (default): visible to all agents in the namespace.
-	// "explicit": only visible to agents listed in allowedCallers.
-	// "hidden": never appears in list_task_agents.
-	// +optional
-	// +kubebuilder:default=namespace
-	Scope DiscoveryScope `json:"scope,omitempty"`
-
-	// AllowedCallers restricts which agents can discover and delegate to this one.
-	// Only effective when scope is "explicit". Each entry is an agent name.
-	// When scope is "namespace", this field is ignored (all agents can delegate).
-	// When scope is "hidden", no agent can discover or delegate.
-	// +optional
-	AllowedCallers []string `json:"allowedCallers,omitempty"`
-}
-
-// DelegationStrategy controls how eagerly an agent delegates work to other agents.
-// +kubebuilder:validation:Enum=proactive;conservative;manual
-type DelegationStrategy string
-
-const (
-	// DelegationStrategyProactive: actively decompose tasks and delegate subtasks
-	// to specialists when their expertise matches. Don't attempt work that a
-	// specialist agent would handle better.
-	DelegationStrategyProactive DelegationStrategy = "proactive"
-	// DelegationStrategyConservative: attempt tasks yourself first. Only delegate
-	// when you lack the required tools, permissions, or domain expertise.
-	DelegationStrategyConservative DelegationStrategy = "conservative"
-	// DelegationStrategyManual: never delegate unless the user explicitly asks.
-	// Focus on completing work with your own tools.
-	DelegationStrategyManual DelegationStrategy = "manual"
-)
-
 // DelegationSpec controls how this agent delegates work to other agents.
-// This is the OUTBOUND side: how I find and use other agents.
+// The team list IS the access control — only agents listed in Team can be
+// delegated to. Process/workflow belongs in the agent's systemPrompt, not
+// in CRD fields.
 // When set, the operator generates a delegation protocol section that is
 // injected into the system message as a separate platform protocol part,
 // never appended to the user's systemPrompt.
 type DelegationSpec struct {
-	// Strategy controls how eagerly this agent delegates work.
-	//   proactive:    actively decompose and delegate subtasks to specialists
-	//   conservative: only delegate when lacking tools or expertise
-	//   manual:       only delegate when user explicitly asks
-	// +kubebuilder:validation:Required
-	Strategy DelegationStrategy `json:"strategy"`
-
-	// PreferParallel favors run_agents (parallel fan-out) over sequential
-	// run_agent calls. When true, the delegation protocol instructs the agent
-	// to use run_agents for independent subtasks. When false or omitted,
-	// the agent delegates one task at a time.
-	// +optional
-	PreferParallel bool `json:"preferParallel,omitempty"`
+	// Explicit team roster. Only these agents can be delegated to.
+	// Each entry is an Agent CR name in the same namespace.
+	// +kubebuilder:validation:MinItems=1
+	Team []string `json:"team"`
 
 	// MaxFanOut limits the number of concurrent delegations in a single
 	// run_agents call. Runtime-enforced cap on batch size.

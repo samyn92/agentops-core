@@ -110,7 +110,7 @@ spec:
               delegation:
                 description: |-
                   Delegation controls how this agent delegates work to other agents.
-                  Controls outbound behavior: how I use OTHER agents.
+                  The team list IS the access control — only listed agents can be delegated to.
                   When set, the operator generates a delegation protocol that is injected
                   as a separate platform protocol section (never appended to systemPrompt).
                   Omit entirely to get no delegation protocol injection.
@@ -124,69 +124,16 @@ spec:
                     maximum: 10
                     minimum: 1
                     type: integer
-                  preferParallel:
+                  team:
                     description: |-
-                      PreferParallel favors run_agents (parallel fan-out) over sequential
-                      run_agent calls. When true, the delegation protocol instructs the agent
-                      to use run_agents for independent subtasks. When false or omitted,
-                      the agent delegates one task at a time.
-                    type: boolean
-                  strategy:
-                    description: |-
-                      Strategy controls how eagerly this agent delegates work.
-                        proactive:    actively decompose and delegate subtasks to specialists
-                        conservative: only delegate when lacking tools or expertise
-                        manual:       only delegate when user explicitly asks
-                    enum:
-                    - proactive
-                    - conservative
-                    - manual
-                    type: string
+                      Explicit team roster. Only these agents can be delegated to.
+                      Each entry is an Agent CR name in the same namespace.
+                    items:
+                      type: string
+                    minItems: 1
+                    type: array
                 required:
-                - strategy
-                type: object
-              discovery:
-                description: |-
-                  Discovery controls how this agent appears to other agents via
-                  the list_task_agents tool and who is allowed to delegate to it.
-                  Controls inbound visibility: how OTHER agents find and delegate to ME.
-                properties:
-                  allowedCallers:
-                    description: |-
-                      AllowedCallers restricts which agents can discover and delegate to this one.
-                      Only effective when scope is "explicit". Each entry is an agent name.
-                      When scope is "namespace", this field is ignored (all agents can delegate).
-                      When scope is "hidden", no agent can discover or delegate.
-                    items:
-                      type: string
-                    type: array
-                  description:
-                    description: |-
-                      Short description shown to other agents in list_task_agents instead of
-                      the truncated system prompt. Should describe what this agent is good at
-                      in 1-2 sentences.
-                    maxLength: 500
-                    type: string
-                  scope:
-                    default: namespace
-                    description: |-
-                      Scope controls visibility in list_task_agents.
-                      "namespace" (default): visible to all agents in the namespace.
-                      "explicit": only visible to agents listed in allowedCallers.
-                      "hidden": never appears in list_task_agents.
-                    enum:
-                    - namespace
-                    - explicit
-                    - hidden
-                    type: string
-                  tags:
-                    description: |-
-                      Tags for categorization and filtering. Other agents can use these to
-                      find the right specialist (e.g. "kubernetes", "security", "frontend").
-                    items:
-                      type: string
-                    maxItems: 20
-                    type: array
+                - team
                 type: object
               enableQuestionTool:
                 description: |-

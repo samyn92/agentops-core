@@ -613,12 +613,11 @@ func TestBuildAgentConfigMap_MemoryFullyPassive(t *testing.T) {
 
 // ── Delegation Protocol tests ──
 
-func TestBuildAgentConfigMap_DelegationProactive(t *testing.T) {
+func TestBuildAgentConfigMap_DelegationWithTeam(t *testing.T) {
 	agent := testAgent()
 	agent.Spec.Delegation = &agentsv1alpha1.DelegationSpec{
-		Strategy:       agentsv1alpha1.DelegationStrategyProactive,
-		PreferParallel: true,
-		MaxFanOut:      5,
+		Team:      []string{"architect", "coder", "tester"},
+		MaxFanOut: 5,
 	}
 
 	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
@@ -631,15 +630,18 @@ func TestBuildAgentConfigMap_DelegationProactive(t *testing.T) {
 		t.Fatalf("failed to parse config: %v", err)
 	}
 
-	// Platform protocol should contain delegation protocol
+	// Platform protocol should contain delegation protocol with team roster
 	if !strings.Contains(cfg.PlatformProtocol, "## Delegation") {
 		t.Error("expected delegation header in platform protocol")
 	}
-	if !strings.Contains(cfg.PlatformProtocol, "delegate immediately") {
-		t.Error("expected proactive delegation instructions")
+	if !strings.Contains(cfg.PlatformProtocol, "architect") {
+		t.Error("expected team member 'architect' in platform protocol")
 	}
-	if !strings.Contains(cfg.PlatformProtocol, "run_agents to execute them in parallel") {
-		t.Error("expected parallel delegation instructions")
+	if !strings.Contains(cfg.PlatformProtocol, "coder") {
+		t.Error("expected team member 'coder' in platform protocol")
+	}
+	if !strings.Contains(cfg.PlatformProtocol, "tester") {
+		t.Error("expected team member 'tester' in platform protocol")
 	}
 	if !strings.Contains(cfg.PlatformProtocol, "Maximum parallel delegations per fan-out: 5") {
 		t.Error("expected maxFanOut in platform protocol")
@@ -654,59 +656,11 @@ func TestBuildAgentConfigMap_DelegationProactive(t *testing.T) {
 	if cfg.Delegation == nil {
 		t.Fatal("expected delegation config")
 	}
-	if cfg.Delegation.Strategy != "proactive" {
-		t.Errorf("expected strategy=proactive, got %q", cfg.Delegation.Strategy)
-	}
-	if !cfg.Delegation.PreferParallel {
-		t.Error("expected preferParallel=true")
+	if len(cfg.Delegation.Team) != 3 {
+		t.Errorf("expected 3 team members, got %d", len(cfg.Delegation.Team))
 	}
 	if cfg.Delegation.MaxFanOut != 5 {
 		t.Errorf("expected maxFanOut=5, got %d", cfg.Delegation.MaxFanOut)
-	}
-}
-
-func TestBuildAgentConfigMap_DelegationConservative(t *testing.T) {
-	agent := testAgent()
-	agent.Spec.Delegation = &agentsv1alpha1.DelegationSpec{
-		Strategy: agentsv1alpha1.DelegationStrategyConservative,
-	}
-
-	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var cfg AgentConfig
-	if err := json.Unmarshal([]byte(cm.Data["config.json"]), &cfg); err != nil {
-		t.Fatalf("failed to parse config: %v", err)
-	}
-
-	if !strings.Contains(cfg.PlatformProtocol, "Attempt tasks yourself first") {
-		t.Error("expected conservative delegation instructions")
-	}
-	if !strings.Contains(cfg.PlatformProtocol, "Delegate tasks one at a time") {
-		t.Error("expected sequential delegation instructions (preferParallel=false)")
-	}
-}
-
-func TestBuildAgentConfigMap_DelegationManual(t *testing.T) {
-	agent := testAgent()
-	agent.Spec.Delegation = &agentsv1alpha1.DelegationSpec{
-		Strategy: agentsv1alpha1.DelegationStrategyManual,
-	}
-
-	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var cfg AgentConfig
-	if err := json.Unmarshal([]byte(cm.Data["config.json"]), &cfg); err != nil {
-		t.Fatalf("failed to parse config: %v", err)
-	}
-
-	if !strings.Contains(cfg.PlatformProtocol, "do NOT delegate tasks unless the user explicitly asks") {
-		t.Error("expected manual delegation instructions")
 	}
 }
 
@@ -736,9 +690,6 @@ func TestBuildAgentConfigMap_NoDelegationSpec(t *testing.T) {
 
 func TestBuildAgentConfigMap_PlatformProtocolIdentity(t *testing.T) {
 	agent := testAgent()
-	agent.Spec.Discovery = &agentsv1alpha1.DiscoverySpec{
-		Description: "A helpful test agent for unit tests.",
-	}
 
 	cm, err := BuildAgentConfigMap(agent, nil, nil, nil)
 	if err != nil {
@@ -753,9 +704,6 @@ func TestBuildAgentConfigMap_PlatformProtocolIdentity(t *testing.T) {
 	if !strings.Contains(cfg.PlatformProtocol, "You are test-agent, a daemon agent in the agents namespace.") {
 		t.Errorf("expected agent identity in platform protocol, got %q", cfg.PlatformProtocol)
 	}
-	if !strings.Contains(cfg.PlatformProtocol, "A helpful test agent for unit tests.") {
-		t.Error("expected discovery description in platform protocol identity")
-	}
 }
 
 // ── Combined delegation + memory tests ──
@@ -763,9 +711,8 @@ func TestBuildAgentConfigMap_PlatformProtocolIdentity(t *testing.T) {
 func TestBuildAgentConfigMap_DelegationAndMemory(t *testing.T) {
 	agent := testAgent()
 	agent.Spec.Delegation = &agentsv1alpha1.DelegationSpec{
-		Strategy:       agentsv1alpha1.DelegationStrategyProactive,
-		PreferParallel: true,
-		MaxFanOut:      3,
+		Team:      []string{"architect", "coder"},
+		MaxFanOut: 3,
 	}
 	agent.Spec.Memory = &agentsv1alpha1.MemorySpec{ServerRef: "engram"}
 
