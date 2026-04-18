@@ -66,6 +66,84 @@ type AgentRunSpec struct {
 	// works on a feature branch, and can create/update a PR/MR.
 	// +optional
 	Git *AgentRunGitSpec `json:"git,omitempty"`
+
+	// Outcome lets the caller hint the expected intent of the run.
+	// The executing agent finalizes the actual intent in status.outcome.
+	// +optional
+	Outcome *AgentRunOutcomeSpec `json:"outcome,omitempty"`
+}
+
+// AgentRunIntent describes WHY a run happened. The executing agent
+// finalizes this in status.outcome.intent at end-of-run; the caller
+// can hint via spec.outcome.intent.
+// +kubebuilder:validation:Enum=change;plan;incident;discovery;noop
+type AgentRunIntent string
+
+const (
+	// IntentChange — run modified code; typical artifact: pr/mr (+ commit).
+	IntentChange AgentRunIntent = "change"
+	// IntentPlan — run produced a plan/spec/decision for later discussion;
+	// typical artifact: issue.
+	IntentPlan AgentRunIntent = "plan"
+	// IntentIncident — run triaged an incident; typical artifacts: issue (RCA)
+	// + memory (lesson learned).
+	IntentIncident AgentRunIntent = "incident"
+	// IntentDiscovery — run captured durable knowledge; typical artifact: memory.
+	IntentDiscovery AgentRunIntent = "discovery"
+	// IntentNoop — chit-chat, aborted run, daemon idle. No artifacts.
+	IntentNoop AgentRunIntent = "noop"
+)
+
+// AgentRunOutcomeSpec lets the caller hint the expected intent when the
+// run is created. The executing agent overrides this in status.outcome.intent
+// if reality differs.
+type AgentRunOutcomeSpec struct {
+	// Hinted intent. The executing agent may override in status.outcome.intent.
+	// +optional
+	Intent AgentRunIntent `json:"intent,omitempty"`
+}
+
+// AgentRunArtifact describes a durable external reference produced by the run.
+type AgentRunArtifact struct {
+	// Kind of artifact.
+	// +kubebuilder:validation:Enum=pr;mr;issue;memory;commit
+	Kind string `json:"kind"`
+
+	// Forge provider (github, gitlab, memory, ...).
+	// +optional
+	Provider string `json:"provider,omitempty"`
+
+	// Fully-qualified URL — where a human clicks.
+	// +optional
+	URL string `json:"url,omitempty"`
+
+	// Identifier within the provider (PR number, issue number, memory id, sha).
+	// +optional
+	Ref string `json:"ref,omitempty"`
+
+	// Short human title rendered in the console Run card.
+	// +optional
+	Title string `json:"title,omitempty"`
+}
+
+// AgentRunOutcomeStatus is the authoritative outcome of an AgentRun,
+// written by the executing agent at end-of-run.
+type AgentRunOutcomeStatus struct {
+	// Finalized intent. Authoritative — overrides spec.outcome.intent.
+	// Console falls back to spec value when this is empty (run still in flight).
+	// Set once at end-of-run; immutable thereafter.
+	// +optional
+	Intent AgentRunIntent `json:"intent,omitempty"`
+
+	// Artifacts produced by the run. Append-only during the run; frozen
+	// once status.phase is terminal (Succeeded or Failed).
+	// +optional
+	Artifacts []AgentRunArtifact `json:"artifacts,omitempty"`
+
+	// Short summary (1-3 sentences) written by the executing agent at
+	// end-of-run, for rendering in the Run sidebar card.
+	// +optional
+	Summary string `json:"summary,omitempty"`
 }
 
 // AgentRunGitSpec configures a git workspace for a task agent run.
@@ -132,19 +210,12 @@ type AgentRunStatus struct {
 	// +optional
 	TraceID string `json:"traceID,omitempty"`
 
-	// ── Git output (populated when spec.git is set) ──
-
-	// URL of the pull request / merge request created or updated by the agent.
+	// Outcome is the authoritative result of the run, written by the
+	// executing agent at end-of-run via the run_finish built-in tool.
+	// Replaces the legacy pullRequestURL/branch/commits fields — git
+	// artifacts now appear in outcome.artifacts as kind=pr/mr/commit.
 	// +optional
-	PullRequestURL string `json:"pullRequestURL,omitempty"`
-
-	// Number of commits pushed by the agent during this run.
-	// +optional
-	Commits int `json:"commits,omitempty"`
-
-	// Git branch the agent worked on.
-	// +optional
-	Branch string `json:"branch,omitempty"`
+	Outcome *AgentRunOutcomeStatus `json:"outcome,omitempty"`
 
 	// Standard conditions.
 	// +optional
@@ -163,6 +234,8 @@ const (
 // +kubebuilder:printcolumn:name="Source",type=string,JSONPath=`.spec.source`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.status.mode`
+// +kubebuilder:printcolumn:name="Intent",type=string,JSONPath=`.status.outcome.intent`
+// +kubebuilder:printcolumn:name="Artifact",type=string,JSONPath=`.status.outcome.artifacts[0].url`
 // +kubebuilder:printcolumn:name="Tokens",type=integer,JSONPath=`.status.tokensUsed`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

@@ -431,15 +431,10 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 			run.Status.TraceID = result.TraceID
 		}
 		run.Status.ToolCalls = result.Steps
-		if result.PullRequestURL != "" {
-			run.Status.PullRequestURL = result.PullRequestURL
-		}
-		if result.Commits > 0 {
-			run.Status.Commits = result.Commits
-		}
-		if result.Branch != "" {
-			run.Status.Branch = result.Branch
-		}
+		// NOTE: outcome (PR/issue/memory artifacts + intent + summary) is now
+		// written directly to status.outcome by the executing agent via the
+		// run_finish built-in tool in agentops-runtime. The controller no
+		// longer parses git outputs from the termination log.
 		meta.SetStatusCondition(&run.Status.Conditions, metav1.Condition{
 			Type:   agentsv1alpha1.AgentRunConditionComplete,
 			Status: metav1.ConditionTrue,
@@ -694,16 +689,15 @@ func (r *AgentRunReconciler) getJobOutput(ctx context.Context, job *batchv1.Job)
 }
 
 // taskRunOutput matches the JSON the task runtime writes to /dev/termination-log.
+// Outcome data (PR/issue/memory artifacts) is NOT carried here — the runtime
+// patches status.outcome directly via the K8s API in the run_finish tool.
 type taskRunOutput struct {
-	Output         string `json:"output"`
-	Steps          int    `json:"steps"`
-	Model          string `json:"model"`
-	Success        bool   `json:"success"`
-	Error          string `json:"error"`
-	TraceID        string `json:"traceID,omitempty"`
-	PullRequestURL string `json:"pullRequestURL,omitempty"`
-	Commits        int    `json:"commits,omitempty"`
-	Branch         string `json:"branch,omitempty"`
+	Output  string `json:"output"`
+	Steps   int    `json:"steps"`
+	Model   string `json:"model"`
+	Success bool   `json:"success"`
+	Error   string `json:"error"`
+	TraceID string `json:"traceID,omitempty"`
 }
 
 // setRunFailedStatus sets the AgentRun status to Failed. Caller must patch status.

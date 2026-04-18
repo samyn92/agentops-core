@@ -60,6 +60,14 @@ func BuildAgentRole(agent *agentsv1alpha1.Agent) *rbacv1.Role {
 				Verbs:     []string{"create", "get", "list", "watch"},
 			},
 			{
+				// Allow patching status on AgentRun CRs so the executing agent
+				// can write status.outcome via the run_finish built-in tool.
+				// Narrow scope: status subresource only.
+				APIGroups: []string{"agents.agentops.io"},
+				Resources: []string{"agentruns/status"},
+				Verbs:     []string{"get", "patch", "update"},
+			},
+			{
 				// Allow reading Agent CRs (for agent discovery / orchestration)
 				APIGroups: []string{"agents.agentops.io"},
 				Resources: []string{"agents"},
