@@ -73,11 +73,13 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.OPERATOR_IMAGE }}:${{ steps.version.outputs.version }}
             ${{ env.OPERATOR_IMAGE }}:latest
@@ -98,11 +100,13 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: images/mcp-gateway
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.GATEWAY_IMAGE }}:${{ steps.version.outputs.version }}
             ${{ env.GATEWAY_IMAGE }}:latest
