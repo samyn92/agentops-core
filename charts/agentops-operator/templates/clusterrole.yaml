@@ -12,6 +12,7 @@ rules:
     resources:
       - configmaps
       - persistentvolumeclaims
+      - secrets
       - serviceaccounts
       - services
     verbs:
@@ -41,6 +42,7 @@ rules:
       - agenttools
       - channels
       - mcpservers
+      - providers
     verbs:
       - create
       - delete
@@ -58,6 +60,7 @@ rules:
       - agenttools/finalizers
       - channels/finalizers
       - mcpservers/finalizers
+      - providers/finalizers
     verbs:
       - update
   - apiGroups:
@@ -69,6 +72,7 @@ rules:
       - agenttools/status
       - channels/status
       - mcpservers/status
+      - providers/status
     verbs:
       - get
       - patch
