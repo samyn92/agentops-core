@@ -36,6 +36,12 @@ podLabels: {}
 podSecurityContext:
   # -- Run pod as non-root
   runAsNonRoot: true
+  # -- Run as user (65534 = nobody)
+  runAsUser: 65534
+  # -- Run as group (65534 = nogroup)
+  runAsGroup: 65534
+  # -- Filesystem group
+  fsGroup: 65534
   # -- Seccomp profile type
   seccompProfile:
     type: RuntimeDefault
@@ -43,6 +49,8 @@ podSecurityContext:
 securityContext:
   # -- Disallow privilege escalation
   allowPrivilegeEscalation: false
+  # -- Read-only root filesystem
+  readOnlyRootFilesystem: true
   capabilities:
     drop:
       - "ALL"
@@ -121,6 +129,13 @@ volumes: []
 rbac:
   # -- Create RBAC resources (ClusterRole, ClusterRoleBinding, Role, RoleBinding)
   create: true
+  # -- Use namespace-scoped Roles instead of ClusterRoles.
+  # Enable this when the deploying service account lacks cluster-admin privileges
+  # (e.g. SchiffCluster m2m-sa cannot create ClusterRoles).
+  namespaced: false
+  # -- Namespaces to create Roles in when rbac.namespaced is true.
+  # Each namespace gets a Role + RoleBinding with the same rules.
+  watchNamespaces: []
 
 # -- Install CRDs with the chart. CRDs are placed in the crds/ directory
 # and are installed automatically by Helm. Set to false to manage CRDs separately.

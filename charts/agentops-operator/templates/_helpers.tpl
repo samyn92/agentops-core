@@ -85,3 +85,134 @@ Operator image
 {{- printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) }}
 {{- end }}
 {{- end }}
+
+{{/*
+Manager RBAC rules — shared between ClusterRole and namespaced Roles.
+*/}}
+{{- define "agentops-operator.managerRules" -}}
+# Core resources
+- apiGroups:
+    - ""
+  resources:
+    - configmaps
+    - persistentvolumeclaims
+    - secrets
+    - serviceaccounts
+    - services
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - ""
+  resources:
+    - pods
+    - pods/log
+  verbs:
+    - get
+    - list
+    - watch
+# AgentOps CRDs
+- apiGroups:
+    - agents.agentops.io
+  resources:
+    - agentresources
+    - agentruns
+    - agents
+    - agenttools
+    - channels
+    - mcpservers
+    - providers
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - agents.agentops.io
+  resources:
+    - agentresources/finalizers
+    - agentruns/finalizers
+    - agents/finalizers
+    - agenttools/finalizers
+    - channels/finalizers
+    - mcpservers/finalizers
+    - providers/finalizers
+  verbs:
+    - update
+- apiGroups:
+    - agents.agentops.io
+  resources:
+    - agentresources/status
+    - agentruns/status
+    - agents/status
+    - agenttools/status
+    - channels/status
+    - mcpservers/status
+    - providers/status
+  verbs:
+    - get
+    - patch
+    - update
+# Deployments
+- apiGroups:
+    - apps
+  resources:
+    - deployments
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+# Jobs
+- apiGroups:
+    - batch
+  resources:
+    - jobs
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+# Networking
+- apiGroups:
+    - networking.k8s.io
+  resources:
+    - ingresses
+    - networkpolicies
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+# RBAC (agent pod permissions)
+- apiGroups:
+    - rbac.authorization.k8s.io
+  resources:
+    - roles
+    - rolebindings
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+{{- end }}

@@ -1,0 +1,16 @@
+{{- if and .Values.rbac.create .Values.rbac.namespaced -}}
+{{- $fullName := include "agentops-operator.fullname" . -}}
+{{- $labels := include "agentops-operator.labels" . -}}
+{{- range .Values.rbac.watchNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullName }}-manager
+  namespace: {{ . }}
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  {{- include "agentops-operator.managerRules" $ | nindent 2 }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,23 @@
+{{- if and .Values.rbac.create .Values.rbac.namespaced -}}
+{{- $fullName := include "agentops-operator.fullname" . -}}
+{{- $labels := include "agentops-operator.labels" . -}}
+{{- $saName := include "agentops-operator.serviceAccountName" . -}}
+{{- range .Values.rbac.watchNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullName }}-manager
+  namespace: {{ . }}
+  labels:
+    {{- $labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullName }}-manager
+subjects:
+  - kind: ServiceAccount
+    name: {{ $saName }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
