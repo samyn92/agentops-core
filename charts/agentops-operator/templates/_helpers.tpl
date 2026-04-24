@@ -111,11 +111,16 @@ Manager RBAC rules — shared between ClusterRole and namespaced Roles.
     - ""
   resources:
     - pods
-    - pods/log
   verbs:
     - get
     - list
     - watch
+- apiGroups:
+    - ""
+  resources:
+    - pods/log
+  verbs:
+    - get
 # AgentOps CRDs
 - apiGroups:
     - agents.agentops.io
@@ -125,7 +130,6 @@ Manager RBAC rules — shared between ClusterRole and namespaced Roles.
     - agents
     - agenttools
     - channels
-    - mcpservers
     - providers
   verbs:
     - create
@@ -143,7 +147,6 @@ Manager RBAC rules — shared between ClusterRole and namespaced Roles.
     - agents/finalizers
     - agenttools/finalizers
     - channels/finalizers
-    - mcpservers/finalizers
     - providers/finalizers
   verbs:
     - update
@@ -155,7 +158,6 @@ Manager RBAC rules — shared between ClusterRole and namespaced Roles.
     - agents/status
     - agenttools/status
     - channels/status
-    - mcpservers/status
     - providers/status
   verbs:
     - get
