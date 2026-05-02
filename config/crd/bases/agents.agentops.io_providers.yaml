@@ -59,7 +59,11 @@ spec:
             description: ProviderSpec defines the desired state of Provider.
             properties:
               apiKeySecret:
-                description: Secret containing the API key for this provider.
+                description: |-
+                  Secret containing the API key for this provider.
+                  Required for static-key auth. Omit when using
+                  spec.endpoint.oauth2ClientCredentials, which delegates auth to the
+                  token-injector sidecar.
                 properties:
                   key:
                     description: Key within the Secret.
@@ -276,7 +280,6 @@ spec:
                 - openaicompat
                 type: string
             required:
-            - apiKeySecret
             - type
             type: object
           status:

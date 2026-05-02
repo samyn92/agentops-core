@@ -489,8 +489,13 @@ func buildEnvVars(agent *agentsv1alpha1.Agent, providers []agentsv1alpha1.Provid
 		})
 	}
 
-	// Provider API keys from Provider CRs (providerRefs)
+	// Provider API keys from Provider CRs (providerRefs).
+	// Skipped for providers using oauth2ClientCredentials — auth is handled
+	// by the per-provider token-injector sidecar.
 	for _, prov := range providers {
+		if prov.Spec.ApiKeySecret == nil {
+			continue
+		}
 		env = append(env, corev1.EnvVar{
 			Name: ProviderEnvVarName(prov.Name),
 			ValueFrom: &corev1.EnvVarSource{

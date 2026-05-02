@@ -60,7 +60,11 @@ type ProviderSpec struct {
 	// ====================================================================
 
 	// Secret containing the API key for this provider.
-	ApiKeySecret SecretKeyRef `json:"apiKeySecret"`
+	// Required for static-key auth. Omit when using
+	// spec.endpoint.oauth2ClientCredentials, which delegates auth to the
+	// token-injector sidecar.
+	// +optional
+	ApiKeySecret *SecretKeyRef `json:"apiKeySecret,omitempty"`
 
 	// ====================================================================
 	// ENDPOINT

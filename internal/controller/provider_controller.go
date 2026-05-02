@@ -150,6 +150,17 @@ func (r *ProviderReconciler) validateConfig(provider *agentsv1alpha1.Provider) b
 		}
 	}
 
+	// Authentication: must use exactly one of apiKeySecret or
+	// endpoint.oauth2ClientCredentials.
+	hasAPIKey := provider.Spec.ApiKeySecret != nil
+	hasOAuth := provider.Spec.Endpoint != nil && provider.Spec.Endpoint.OAuth2ClientCredentials != nil
+	switch {
+	case !hasAPIKey && !hasOAuth:
+		issues = append(issues, "provider must set either spec.apiKeySecret or spec.endpoint.oauth2ClientCredentials")
+	case hasAPIKey && hasOAuth:
+		issues = append(issues, "provider must set only one of spec.apiKeySecret or spec.endpoint.oauth2ClientCredentials, not both")
+	}
+
 	if len(issues) > 0 {
 		meta.SetStatusCondition(&provider.Status.Conditions, metav1.Condition{
 			Type:    agentsv1alpha1.ProviderConditionConfigValid,
@@ -170,7 +181,19 @@ func (r *ProviderReconciler) validateConfig(provider *agentsv1alpha1.Provider) b
 }
 
 // validateSecret checks that the referenced Secret exists and contains the expected key.
+// When apiKeySecret is unset (oauth2 auth), it is a no-op that marks the
+// SecretReady condition true with reason NotApplicable.
 func (r *ProviderReconciler) validateSecret(ctx context.Context, provider *agentsv1alpha1.Provider) bool {
+	if provider.Spec.ApiKeySecret == nil {
+		meta.SetStatusCondition(&provider.Status.Conditions, metav1.Condition{
+			Type:    agentsv1alpha1.ProviderConditionSecretReady,
+			Status:  metav1.ConditionTrue,
+			Reason:  "NotApplicable",
+			Message: "No apiKeySecret configured; authentication handled by token-injector",
+		})
+		return true
+	}
+
 	secret := &corev1.Secret{}
 	err := r.Get(ctx, types.NamespacedName{
 		Name:      provider.Spec.ApiKeySecret.Name,
@@ -255,6 +278,9 @@ func (r *ProviderReconciler) secretToProviderRequests(ctx context.Context, obj c
 
 	var requests []reconcile.Request
 	for _, prov := range providers.Items {
+		if prov.Spec.ApiKeySecret == nil {
+			continue
+		}
 		if prov.Spec.ApiKeySecret.Name == secret.Name {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{
