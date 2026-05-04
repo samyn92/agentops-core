@@ -97,6 +97,7 @@ func BuildChannelDeployment(ch *agentsv1alpha1.Channel, agent *agentsv1alpha1.Ag
 	if ch.Spec.Resources != nil {
 		container.Resources = *ch.Spec.Resources
 	}
+	ensureEphemeralStorage(&container.Resources)
 
 	podSpec := corev1.PodSpec{
 		Containers: []corev1.Container{container},

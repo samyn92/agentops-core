@@ -131,6 +131,7 @@ func BuildAgentToolDeployment(tool *agentsv1alpha1.AgentTool) *appsv1.Deployment
 	if src.Resources != nil {
 		container.Resources = *src.Resources
 	}
+	ensureEphemeralStorage(&container.Resources)
 
 	// Health check
 	if src.HealthCheck != nil && src.HealthCheck.Path != "" {

@@ -41,6 +41,7 @@ import (
 
 	agentsv1alpha1 "github.com/samyn92/agentops-core/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 // RestrictedRunAsUser is the default non-root UID used by every
@@ -72,7 +73,7 @@ func RestrictedContainerSecurityContext() *corev1.SecurityContext {
 		ReadOnlyRootFilesystem:   &t,
 		RunAsNonRoot:             &t,
 		Capabilities: &corev1.Capabilities{
-			Drop: []corev1.Capability{"ALL"},
+			Drop: []corev1.Capability{"ALL", "NET_RAW"},
 		},
 		SeccompProfile: &corev1.SeccompProfile{
 			Type: corev1.SeccompProfileTypeRuntimeDefault,
@@ -106,15 +107,54 @@ func RestrictedPodSecurityContext() *corev1.PodSecurityContext {
 // container so they retain a writable /tmp under a read-only root
 // filesystem.
 func TmpVolume() corev1.Volume {
+	limit := resource.MustParse("64Mi")
 	return corev1.Volume{
-		Name:         VolumeTmp,
-		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		Name: VolumeTmp,
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
+			SizeLimit: &limit,
+		}},
+	}
+}
+
+// SidecarResources returns sensible default resource requirements for
+// lightweight operator-injected sidecars (token-injector, mcp-gateway).
+// These satisfy cluster policies that require requests+limits on all containers.
+func SidecarResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:              resource.MustParse("5m"),
+			corev1.ResourceMemory:           resource.MustParse("16Mi"),
+			corev1.ResourceEphemeralStorage: resource.MustParse("16Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:              resource.MustParse("100m"),
+			corev1.ResourceMemory:           resource.MustParse("64Mi"),
+			corev1.ResourceEphemeralStorage: resource.MustParse("64Mi"),
+		},
 	}
 }
 
 // TmpVolumeMount returns the standard /tmp VolumeMount.
 func TmpVolumeMount() corev1.VolumeMount {
 	return corev1.VolumeMount{Name: VolumeTmp, MountPath: MountTmp}
+}
+
+// ensureEphemeralStorage injects default ephemeral-storage requests+limits
+// if not already set. Required by cluster policies for containers that mount
+// emptyDir volumes.
+func ensureEphemeralStorage(r *corev1.ResourceRequirements) {
+	if r.Requests == nil {
+		r.Requests = corev1.ResourceList{}
+	}
+	if _, ok := r.Requests[corev1.ResourceEphemeralStorage]; !ok {
+		r.Requests[corev1.ResourceEphemeralStorage] = resource.MustParse("64Mi")
+	}
+	if r.Limits == nil {
+		r.Limits = corev1.ResourceList{}
+	}
+	if _, ok := r.Limits[corev1.ResourceEphemeralStorage]; !ok {
+		r.Limits[corev1.ResourceEphemeralStorage] = resource.MustParse("128Mi")
+	}
 }
 
 // ====================================================================

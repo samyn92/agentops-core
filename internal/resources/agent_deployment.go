@@ -398,6 +398,7 @@ func buildMainContainer(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1
 	if agent.Spec.Resources != nil {
 		container.Resources = *agent.Spec.Resources
 	}
+	ensureEphemeralStorage(&container.Resources)
 
 	container.ImagePullPolicy = agent.RuntimeImagePullPolicy()
 
@@ -554,6 +555,21 @@ func buildGatewaySidecar(binding agentsv1alpha1.AgentToolBinding, tool *agentsv1
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
+		LivenessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)},
+			},
+			InitialDelaySeconds: 5,
+			PeriodSeconds:       30,
+		},
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)},
+			},
+			InitialDelaySeconds: 2,
+			PeriodSeconds:       10,
+		},
+		Resources: SidecarResources(),
 		VolumeMounts: []corev1.VolumeMount{
 			{Name: VolumeGateway, MountPath: MountGateway, ReadOnly: true},
 		},
@@ -634,5 +650,20 @@ func buildTokenInjectorSidecar(prov *agentsv1alpha1.Provider, index int) *corev1
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
+		LivenessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)},
+			},
+			InitialDelaySeconds: 5,
+			PeriodSeconds:       30,
+		},
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)},
+			},
+			InitialDelaySeconds: 2,
+			PeriodSeconds:       10,
+		},
+		Resources: SidecarResources(),
 	}
 }
