@@ -51,7 +51,8 @@ func BuildAgentDeployment(agent *agentsv1alpha1.Agent, agentTools []agentsv1alph
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels:      labels,
+					Annotations: agent.Spec.PodAnnotations,
 				},
 				Spec: podSpec,
 			},

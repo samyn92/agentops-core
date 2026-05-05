@@ -524,6 +524,13 @@ func (in *AgentSpec) DeepCopyInto(out *AgentSpec) {
 		*out = new(NetworkPolicySpec)
 		**out = **in
 	}
+	if in.PodAnnotations != nil {
+		in, out := &in.PodAnnotations, &out.PodAnnotations
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	if in.Security != nil {
 		in, out := &in.Security, &out.Security
 		*out = new(SecurityOverrides)

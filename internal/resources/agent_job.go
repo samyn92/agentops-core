@@ -121,7 +121,8 @@ func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent,
 			ActiveDeadlineSeconds: activeDeadline,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels:      labels,
+					Annotations: agent.Spec.PodAnnotations,
 				},
 				Spec: podSpec,
 			},

@@ -246,6 +246,10 @@ type AgentSpec struct {
 	// +optional
 	NetworkPolicy *NetworkPolicySpec `json:"networkPolicy,omitempty"`
 
+	// Annotations to add to the agent pod template (e.g. coil egress).
+	// +optional
+	PodAnnotations map[string]string `json:"podAnnotations,omitempty"`
+
 	// Security overrides for the agent pod. The operator applies a
 	// restricted-by-default SecurityContext to every pod it builds; this
 	// field lets users override fields the floor permits (UID/GID, FSGroup,
