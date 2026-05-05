@@ -87,6 +87,18 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, nil
 	}
 
+	// Ensure RBAC exists early — AgentTool deployments reference the
+	// ServiceAccount and cannot start without it.
+	if agent.Spec.ServiceAccountName == "" {
+		if err := r.reconcileAgentRBAC(ctx, agent); err != nil {
+			r.setAgentFailedStatus(agent, agentsv1alpha1.AgentPhaseFailed, err.Error())
+			if patchErr := patchStatus(ctx, r.Client, agent, statusPatch); patchErr != nil {
+				return ctrl.Result{}, patchErr
+			}
+			return ctrl.Result{}, err
+		}
+	}
+
 	// Validate AgentTools are ready
 	if err := r.validateAgentToolsReady(agentTools); err != nil {
 		meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
@@ -231,13 +243,8 @@ func hasMCPSourceTools(agentTools []agentsv1alpha1.AgentTool) bool {
 func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, agentResources []agentsv1alpha1.AgentResource, providers []agentsv1alpha1.Provider) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	// 0. RBAC (ServiceAccount + Role + RoleBinding) — only if the user
-	//    did not bring their own ServiceAccount.
-	if agent.Spec.ServiceAccountName == "" {
-		if err := r.reconcileAgentRBAC(ctx, agent); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
+	// 0. RBAC — already reconciled early in Reconcile() before tool
+	// readiness check. No need to repeat here.
 
 	// 1. PVC
 	if agent.Spec.Storage != nil {
@@ -353,13 +360,7 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, agentResources []agentsv1alpha1.AgentResource, providers []agentsv1alpha1.Provider) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	// 0. RBAC (ServiceAccount + Role + RoleBinding) — only if the user
-	//    did not bring their own ServiceAccount.
-	if agent.Spec.ServiceAccountName == "" {
-		if err := r.reconcileAgentRBAC(ctx, agent); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
+	// 0. RBAC — already reconciled early in Reconcile().
 
 	// 1. Operator extension ConfigMap
 	configMap, err := resources.BuildAgentConfigMap(agent, agentResources, agentTools, providers)
