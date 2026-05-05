@@ -88,7 +88,7 @@ func loadConfig() (*config, error) {
 	}
 
 	port := envIntDefault("TOKEN_INJECTOR_LISTEN_PORT", 9101)
-	timeout := time.Duration(envIntDefault("TOKEN_INJECTOR_TIMEOUT_SECONDS", 60)) * time.Second
+	timeout := time.Duration(envIntDefault("TOKEN_INJECTOR_TIMEOUT_SECONDS", 120)) * time.Second
 	leeway := time.Duration(envIntDefault("TOKEN_INJECTOR_REFRESH_LEEWAY_SECONDS", 30)) * time.Second
 
 	return &config{
@@ -247,6 +247,13 @@ func newProxy(cfg *config, tokens *tokenCache) http.Handler {
 
 	rp.Transport = &http.Transport{
 		ResponseHeaderTimeout: cfg.Timeout,
+		// Keep-alive and idle settings for long-lived LLM streaming
+		// connections through API gateways.
+		IdleConnTimeout:     120 * time.Second,
+		TLSHandshakeTimeout: 15 * time.Second,
+		// Disable HTTP/2 — some API gateways handle HTTP/2 streams
+		// poorly with SSE; HTTP/1.1 chunked is more reliable.
+		ForceAttemptHTTP2: false,
 	}
 
 	return rp
