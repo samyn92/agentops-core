@@ -28,12 +28,12 @@ import (
 // BuildAgentRunJob creates a Job for a task-mode AgentRun.
 // gitCfg is optional — when non-nil, git workspace env vars and tool init containers are injected.
 // runConfigMapName overrides the operator config volume to use a per-run ConfigMap (empty = use agent default).
-func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, providers []agentsv1alpha1.Provider, gitCfg *GitWorkspaceConfig, runConfigMapName string) *batchv1.Job {
+func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, providers []agentsv1alpha1.Provider, gitCfg *GitWorkspaceConfig, runConfigMapName string, infra InfraConfig) *batchv1.Job {
 	labels := CommonLabels(agent.Name, "task-run")
 	labels["agents.agentops.io/run"] = run.Name
 
 	// Build the pod spec in task mode
-	podSpec := buildAgentPodSpec(agent, agentTools, providers, true)
+	podSpec := buildAgentPodSpec(agent, agentTools, providers, true, infra)
 
 	// Inject AGENT_PROMPT and AGENT_RUN_NAME into the main container
 	for i := range podSpec.Containers {

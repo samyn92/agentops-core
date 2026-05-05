@@ -43,6 +43,7 @@ import (
 type AgentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	Infra  resources.InfraConfig
 }
 
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agents,verbs=get;list;watch;create;update;patch;delete
@@ -289,7 +290,7 @@ func (r *AgentReconciler) reconcileDaemon(ctx context.Context, agent *agentsv1al
 	}
 
 	// 5. Deployment
-	deployment := resources.BuildAgentDeployment(agent, agentTools, providers)
+	deployment := resources.BuildAgentDeployment(agent, agentTools, providers, r.Infra)
 	if err := reconcileOwnedResource(ctx, r.Client, r.Scheme, agent, deployment); err != nil {
 		return ctrl.Result{}, err
 	}

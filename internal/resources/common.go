@@ -100,6 +100,30 @@ const (
 	DefaultNATSEndpoint = "nats://agentops-nats.agent-system.svc.cluster.local:4222"
 )
 
+// InfraConfig holds operator-level infrastructure endpoints injected into
+// agent pods. Values are populated from operator flags; zero values fall back
+// to the package-level defaults above.
+type InfraConfig struct {
+	OTelEndpoint string
+	NATSURL      string
+}
+
+// OTel returns the configured OTLP endpoint or the default.
+func (c InfraConfig) OTel() string {
+	if c.OTelEndpoint != "" {
+		return c.OTelEndpoint
+	}
+	return DefaultOTelEndpoint
+}
+
+// NATS returns the configured NATS URL or the default.
+func (c InfraConfig) NATS() string {
+	if c.NATSURL != "" {
+		return c.NATSURL
+	}
+	return DefaultNATSEndpoint
+}
+
 // CommonLabels returns the standard set of labels for an agent-owned resource.
 func CommonLabels(agentName, component string) map[string]string {
 	return map[string]string{

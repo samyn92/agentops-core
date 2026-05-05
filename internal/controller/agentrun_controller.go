@@ -53,6 +53,7 @@ type AgentRunReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
 	HTTPClient *http.Client
+	Infra      resources.InfraConfig
 }
 
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agentruns,verbs=get;list;watch;create;update;patch;delete
@@ -387,7 +388,7 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 		}
 
 		// Create Job
-		job := resources.BuildAgentRunJob(run, agent, agentTools, resolvedProviders, gitCfg, runConfigMapName)
+		job := resources.BuildAgentRunJob(run, agent, agentTools, resolvedProviders, gitCfg, runConfigMapName, r.Infra)
 		if err := controllerutil.SetControllerReference(run, job, r.Scheme); err != nil {
 			return ctrl.Result{}, err
 		}

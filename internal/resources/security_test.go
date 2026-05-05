@@ -66,7 +66,7 @@ func assertRestrictedCompliant(t *testing.T, label string, meta *metav1.ObjectMe
 // ----------------------------------------------------------------------
 
 func TestRestrictedPSS_AgentDeployment(t *testing.T) {
-	d := BuildAgentDeployment(testAgent(), nil, nil)
+	d := BuildAgentDeployment(testAgent(), nil, nil, InfraConfig{})
 	assertRestrictedCompliant(t, "Agent Deployment",
 		&d.Spec.Template.ObjectMeta, &d.Spec.Template.Spec)
 }
@@ -82,7 +82,7 @@ func TestRestrictedPSS_AgentDeployment_WithMCPTools(t *testing.T) {
 			},
 		},
 	}}
-	d := BuildAgentDeployment(agent, tools, nil)
+	d := BuildAgentDeployment(agent, tools, nil, InfraConfig{})
 	assertRestrictedCompliant(t, "Agent Deployment with MCP gateway sidecar",
 		&d.Spec.Template.ObjectMeta, &d.Spec.Template.Spec)
 }
@@ -102,7 +102,7 @@ func TestRestrictedPSS_AgentDeployment_WithOAuth2Provider(t *testing.T) {
 			},
 		},
 	}}
-	d := BuildAgentDeployment(agent, nil, providers)
+	d := BuildAgentDeployment(agent, nil, providers, InfraConfig{})
 	assertRestrictedCompliant(t, "Agent Deployment with token-injector sidecar",
 		&d.Spec.Template.ObjectMeta, &d.Spec.Template.Spec)
 }
@@ -243,7 +243,7 @@ func TestApplySecurity_RestrictedFloorAlwaysHolds_EvenWithMaliciousOverrides(t *
 			},
 		},
 	}
-	d := BuildAgentDeployment(agent, nil, nil)
+	d := BuildAgentDeployment(agent, nil, nil, InfraConfig{})
 	assertRestrictedCompliant(t, "Agent Deployment with malicious overrides",
 		&d.Spec.Template.ObjectMeta, &d.Spec.Template.Spec)
 }
@@ -256,7 +256,7 @@ func TestApplySecurity_BenignOverridesArePreserved(t *testing.T) {
 			RunAsUser: &uid,
 		},
 	}
-	d := BuildAgentDeployment(agent, nil, nil)
+	d := BuildAgentDeployment(agent, nil, nil, InfraConfig{})
 	got := d.Spec.Template.Spec.SecurityContext
 	if got == nil || got.RunAsUser == nil || *got.RunAsUser != uid {
 		t.Fatalf("expected pod.runAsUser=%d, got %+v", uid, got)
@@ -266,7 +266,7 @@ func TestApplySecurity_BenignOverridesArePreserved(t *testing.T) {
 }
 
 func TestApplySecurity_AutomountServiceAccountTokenDefaultsFalse(t *testing.T) {
-	d := BuildAgentDeployment(testAgent(), nil, nil)
+	d := BuildAgentDeployment(testAgent(), nil, nil, InfraConfig{})
 	a := d.Spec.Template.Spec.AutomountServiceAccountToken
 	if a == nil || *a {
 		t.Fatalf("expected automountServiceAccountToken=false, got %+v", a)
@@ -279,7 +279,7 @@ func TestApplySecurity_AutomountServiceAccountTokenOptIn(t *testing.T) {
 	agent.Spec.Security = &agentsv1alpha1.SecurityOverrides{
 		AutomountServiceAccountToken: &tr,
 	}
-	d := BuildAgentDeployment(agent, nil, nil)
+	d := BuildAgentDeployment(agent, nil, nil, InfraConfig{})
 	a := d.Spec.Template.Spec.AutomountServiceAccountToken
 	if a == nil || !*a {
 		t.Fatalf("expected automountServiceAccountToken=true, got %+v", a)

@@ -43,6 +43,7 @@ import (
 
 	agentsv1alpha1 "github.com/samyn92/agentops-core/api/v1alpha1"
 	"github.com/samyn92/agentops-core/internal/controller"
+	"github.com/samyn92/agentops-core/internal/resources"
 	"github.com/samyn92/agentops-core/internal/tracing"
 	// +kubebuilder:scaffold:imports
 )
@@ -69,6 +70,8 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var otelEndpoint string
+	var natsURL string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -89,6 +92,12 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&otelEndpoint, "otel-endpoint", "",
+		"OTLP gRPC endpoint for agent pod traces. "+
+			"Defaults to built-in if empty.")
+	flag.StringVar(&natsURL, "nats-url", "",
+		"NATS URL for agent pod FEP events. "+
+			"Defaults to built-in if empty.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -250,6 +259,7 @@ func main() {
 	if err := (&controller.AgentReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		Infra:  resources.InfraConfig{OTelEndpoint: otelEndpoint, NATSURL: natsURL},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Agent")
 		os.Exit(1)
@@ -264,6 +274,7 @@ func main() {
 	if err := (&controller.AgentRunReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		Infra:  resources.InfraConfig{OTelEndpoint: otelEndpoint, NATSURL: natsURL},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AgentRun")
 		os.Exit(1)
