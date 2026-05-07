@@ -219,6 +219,17 @@ type ProviderEntry struct {
 	Vertex          *ProviderVertexEntry       `json:"vertex,omitempty"`
 	Bedrock         bool                       `json:"bedrock,omitempty"`
 	CallDefaults    *ProviderCallDefaultsEntry `json:"callDefaults,omitempty"`
+	OAuth2          *ProviderOAuth2Entry       `json:"oauth2,omitempty"`
+}
+
+// ProviderOAuth2Entry holds OAuth2 client_credentials config for config.json.
+// The actual secrets are injected as env vars on the runtime container;
+// this struct tells the runtime which env var names to read and the token URL.
+type ProviderOAuth2Entry struct {
+	TokenURL        string   `json:"tokenURL"`
+	ClientIDEnv     string   `json:"clientIDEnv"`
+	ClientSecretEnv string   `json:"clientSecretEnv"`
+	Scopes          []string `json:"scopes,omitempty"`
 }
 
 // ProviderVertexEntry holds Vertex AI config for config.json.
@@ -524,8 +535,8 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, integrations []agentsv1alp
 	for i := range agent.Spec.ProviderRefs {
 		providerBindingMap[agent.Spec.ProviderRefs[i].Name] = &agent.Spec.ProviderRefs[i]
 	}
-	for i, prov := range providers {
-		entry := buildProviderEntry(&prov, providerBindingMap[prov.Name], i)
+	for _, prov := range providers {
+		entry := buildProviderEntry(&prov, providerBindingMap[prov.Name])
 		config.Providers = append(config.Providers, entry)
 	}
 
@@ -597,10 +608,7 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, integrations []agentsv1alp
 
 // buildProviderEntry creates an enriched ProviderEntry from a Provider CR,
 // merging any per-agent overrides from the ProviderBinding.
-// providerIndex is the position of this provider in the agent's resolved
-// providers slice; it is used to compute the token-injector sidecar port
-// when OAuth2 client_credentials is configured.
-func buildProviderEntry(prov *agentsv1alpha1.Provider, binding *agentsv1alpha1.ProviderBinding, providerIndex int) ProviderEntry {
+func buildProviderEntry(prov *agentsv1alpha1.Provider, binding *agentsv1alpha1.ProviderBinding) ProviderEntry {
 	entry := ProviderEntry{
 		Name: prov.Name,
 		Type: string(prov.Spec.Type),
@@ -611,11 +619,18 @@ func buildProviderEntry(prov *agentsv1alpha1.Provider, binding *agentsv1alpha1.P
 		entry.BaseURL = prov.Spec.Endpoint.BaseURL
 		entry.Headers = prov.Spec.Endpoint.Headers
 
-		// When an OAuth2 token-injector sidecar is configured, redirect the
-		// agent to the localhost sidecar instead of the upstream URL. The
-		// sidecar holds the real BaseURL as its TARGET_URL.
-		if prov.Spec.Endpoint.OAuth2ClientCredentials != nil && entry.BaseURL != "" {
-			entry.BaseURL = fmt.Sprintf("http://localhost:%d", TokenInjectorPort(providerIndex))
+		// When OAuth2 client_credentials is configured, pass OAuth2 config
+		// to the runtime so it can fetch tokens inline (no sidecar needed).
+		if prov.Spec.Endpoint.OAuth2ClientCredentials != nil {
+			oauth := prov.Spec.Endpoint.OAuth2ClientCredentials
+			entry.OAuth2 = &ProviderOAuth2Entry{
+				TokenURL:        oauth.TokenURL,
+				ClientIDEnv:     OAuth2ClientIDEnvVar(prov.Name),
+				ClientSecretEnv: OAuth2ClientSecretEnvVar(prov.Name),
+			}
+			if oauth.Scope != "" {
+				entry.OAuth2.Scopes = strings.Fields(oauth.Scope)
+			}
 		}
 	}
 
@@ -1004,4 +1019,16 @@ func BuildMCPConfigMap(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.
 // e.g. "anthropic" -> "ANTHROPIC_API_KEY"
 func ProviderEnvVarName(providerName string) string {
 	return fmt.Sprintf("%s_API_KEY", strings.ToUpper(providerName))
+}
+
+// OAuth2ClientIDEnvVar returns the env var name for a provider's OAuth2 client ID.
+// e.g. "dnabot" -> "DNABOT_OAUTH2_CLIENT_ID"
+func OAuth2ClientIDEnvVar(providerName string) string {
+	return fmt.Sprintf("%s_OAUTH2_CLIENT_ID", strings.ToUpper(providerName))
+}
+
+// OAuth2ClientSecretEnvVar returns the env var name for a provider's OAuth2 client secret.
+// e.g. "dnabot" -> "DNABOT_OAUTH2_CLIENT_SECRET"
+func OAuth2ClientSecretEnvVar(providerName string) string {
+	return fmt.Sprintf("%s_OAUTH2_CLIENT_SECRET", strings.ToUpper(providerName))
 }

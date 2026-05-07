@@ -118,18 +118,9 @@ func buildAgentPodSpec(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.
 		mcpIndex++
 	}
 
-	// Sidecar containers: OAuth2 token-injector proxies for Providers
-	// using the client_credentials grant (one sidecar per such Provider).
-	for i := range providers {
-		prov := &providers[i]
-		if !providerNeedsTokenInjector(prov) {
-			continue
-		}
-		sidecar := buildTokenInjectorSidecar(prov, i)
-		if sidecar != nil {
-			sidecars = append(sidecars, *sidecar)
-		}
-	}
+	// Sidecar containers: OAuth2 token-injector proxies are no longer needed.
+	// The runtime handles OAuth2 client_credentials inline via its HTTP transport.
+	// (Token-injector sidecar removed in v0.16.0)
 
 	containers := append([]corev1.Container{mainContainer}, sidecars...)
 
@@ -526,20 +517,47 @@ func buildEnvVars(agent *agentsv1alpha1.Agent, providers []agentsv1alpha1.Provid
 
 	// Provider API keys from Provider CRs (providerRefs).
 	// Skipped for providers using oauth2ClientCredentials — auth is handled
-	// by the per-provider token-injector sidecar.
+	// inline by the runtime's OAuth2 transport.
 	for _, prov := range providers {
-		if prov.Spec.ApiKeySecret == nil {
+		if prov.Spec.ApiKeySecret == nil && !providerNeedsOAuth2(prov) {
 			continue
 		}
-		env = append(env, corev1.EnvVar{
-			Name: ProviderEnvVarName(prov.Name),
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: prov.Spec.ApiKeySecret.Name},
-					Key:                  prov.Spec.ApiKeySecret.Key,
+		if prov.Spec.ApiKeySecret != nil {
+			env = append(env, corev1.EnvVar{
+				Name: ProviderEnvVarName(prov.Name),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: prov.Spec.ApiKeySecret.Name},
+						Key:                  prov.Spec.ApiKeySecret.Key,
+					},
 				},
-			},
-		})
+			})
+		}
+		// OAuth2 client credentials: inject client_id and client_secret as env vars
+		// on the main container (runtime reads them via the env var names in config.json).
+		if providerNeedsOAuth2(prov) {
+			oauth := prov.Spec.Endpoint.OAuth2ClientCredentials
+			env = append(env,
+				corev1.EnvVar{
+					Name: OAuth2ClientIDEnvVar(prov.Name),
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: oauth.ClientIDSecret.Name},
+							Key:                  oauth.ClientIDSecret.Key,
+						},
+					},
+				},
+				corev1.EnvVar{
+					Name: OAuth2ClientSecretEnvVar(prov.Name),
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: oauth.ClientSecretSecret.Name},
+							Key:                  oauth.ClientSecretSecret.Key,
+						},
+					},
+				},
+			)
+		}
 	}
 
 	return env
@@ -602,93 +620,12 @@ func buildGatewaySidecar(binding agentsv1alpha1.AgentToolBinding, tool *agentsv1
 }
 
 // ====================================================================
-// OAuth2 Token-Injector sidecar (per Provider)
+// OAuth2 helpers (replaces token-injector sidecar since v0.16.0)
 // ====================================================================
 
-// providerNeedsTokenInjector reports whether a Provider has OAuth2
-// client_credentials configured and therefore requires a sidecar.
-func providerNeedsTokenInjector(prov *agentsv1alpha1.Provider) bool {
-	return prov != nil &&
-		prov.Spec.Endpoint != nil &&
+// providerNeedsOAuth2 reports whether a Provider has OAuth2
+// client_credentials configured.
+func providerNeedsOAuth2(prov agentsv1alpha1.Provider) bool {
+	return prov.Spec.Endpoint != nil &&
 		prov.Spec.Endpoint.OAuth2ClientCredentials != nil
-}
-
-// TokenInjectorPort returns the localhost port the token-injector for the
-// given provider listens on. The agent talks to http://localhost:<port>.
-func TokenInjectorPort(index int) int32 {
-	return int32(TokenInjectorBasePort + index)
-}
-
-// buildTokenInjectorSidecar builds the OAuth2 client_credentials token-injector
-// sidecar for a single Provider. It exposes a localhost endpoint that the agent
-// container points at via the Provider's BaseURL override in config.json.
-func buildTokenInjectorSidecar(prov *agentsv1alpha1.Provider, index int) *corev1.Container {
-	if !providerNeedsTokenInjector(prov) {
-		return nil
-	}
-	oauth := prov.Spec.Endpoint.OAuth2ClientCredentials
-	target := prov.Spec.Endpoint.BaseURL
-	if target == "" {
-		// Without a target URL there is nothing to forward to.
-		return nil
-	}
-	port := TokenInjectorPort(index)
-
-	env := []corev1.EnvVar{
-		{Name: "TOKEN_INJECTOR_TARGET_URL", Value: target},
-		{Name: "TOKEN_INJECTOR_TOKEN_URL", Value: oauth.TokenURL},
-		{Name: "TOKEN_INJECTOR_LISTEN_PORT", Value: fmt.Sprintf("%d", port)},
-		{
-			Name: "TOKEN_INJECTOR_CLIENT_ID",
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: oauth.ClientIDSecret.Name},
-					Key:                  oauth.ClientIDSecret.Key,
-				},
-			},
-		},
-		{
-			Name: "TOKEN_INJECTOR_CLIENT_SECRET",
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: oauth.ClientSecretSecret.Name},
-					Key:                  oauth.ClientSecretSecret.Key,
-				},
-			},
-		},
-	}
-	if oauth.Scope != "" {
-		env = append(env, corev1.EnvVar{Name: "TOKEN_INJECTOR_SCOPE", Value: oauth.Scope})
-	}
-	if oauth.Audience != "" {
-		env = append(env, corev1.EnvVar{Name: "TOKEN_INJECTOR_AUDIENCE", Value: oauth.Audience})
-	}
-
-	return &corev1.Container{
-		Name:  fmt.Sprintf("ti-%s", prov.Name),
-		Image: TokenInjectorImage(),
-		Env:   env,
-		Ports: []corev1.ContainerPort{
-			{
-				Name:          fmt.Sprintf("ti-%d", index),
-				ContainerPort: port,
-				Protocol:      corev1.ProtocolTCP,
-			},
-		},
-		LivenessProbe: &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)},
-			},
-			InitialDelaySeconds: 5,
-			PeriodSeconds:       30,
-		},
-		ReadinessProbe: &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)},
-			},
-			InitialDelaySeconds: 2,
-			PeriodSeconds:       10,
-		},
-		Resources: SidecarResources(),
-	}
 }
