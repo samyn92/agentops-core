@@ -110,6 +110,8 @@ func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent,
 		activeDeadline = &defaultSecs
 	}
 
+	var ttl int32 = 120 // clean up completed/failed pods after 2 minutes
+
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      run.Name,
@@ -117,8 +119,9 @@ func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent,
 			Labels:    labels,
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit:          &backoffLimit,
-			ActiveDeadlineSeconds: activeDeadline,
+			BackoffLimit:            &backoffLimit,
+			ActiveDeadlineSeconds:   activeDeadline,
+			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      labels,
