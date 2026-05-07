@@ -381,10 +381,15 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 				return ctrl.Result{}, err
 			}
 			if err := r.Create(ctx, runCM); err != nil {
-				return ctrl.Result{}, fmt.Errorf("create run config: %w", err)
+				if !apierrors.IsAlreadyExists(err) {
+					return ctrl.Result{}, fmt.Errorf("create run config: %w", err)
+				}
+				// ConfigMap already exists from a previous reconcile attempt — continue.
+				log.Info("Per-run ConfigMap already exists, reusing", "configMap", runCM.Name)
+			} else {
+				log.Info("Created per-run ConfigMap with git tool entries", "configMap", runCM.Name)
 			}
 			runConfigMapName = runCM.Name
-			log.Info("Created per-run ConfigMap with git tool entries", "configMap", runCM.Name)
 		}
 
 		// Create Job
@@ -400,7 +405,9 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 		job.Labels[resources.LabelAgent] = agent.Name
 
 		if err := r.Create(ctx, job); err != nil {
-			return ctrl.Result{}, err
+			if !apierrors.IsAlreadyExists(err) {
+				return ctrl.Result{}, err
+			}
 		}
 
 		now := metav1.Now()
