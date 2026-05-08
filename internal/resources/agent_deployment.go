@@ -171,7 +171,7 @@ func buildVolumes(agent *agentsv1alpha1.Agent, taskMode bool) []corev1.Volume {
 }
 
 func buildInitContainers(agent *agentsv1alpha1.Agent) []corev1.Container {
-	var inits []corev1.Container
+	inits := make([]corev1.Container, 0, len(agent.Spec.Tools))
 
 	// OCI tool pulls
 	for _, tool := range agent.Spec.Tools {
@@ -226,10 +226,11 @@ func buildCraneInitContainer(name, ref, destPath, volumeName, mountPath string, 
 }
 
 func buildMainContainer(agent *agentsv1alpha1.Agent, providers []agentsv1alpha1.Provider, taskMode bool, infra InfraConfig) corev1.Container {
-	volumeMounts := []corev1.VolumeMount{
-		{Name: VolumeTools, MountPath: MountTools},
-		{Name: VolumeConfig, MountPath: MountConfig},
-	}
+	volumeMounts := make([]corev1.VolumeMount, 0, 3+len(agent.Spec.ContextFiles))
+	volumeMounts = append(volumeMounts,
+		corev1.VolumeMount{Name: VolumeTools, MountPath: MountTools},
+		corev1.VolumeMount{Name: VolumeConfig, MountPath: MountConfig},
+	)
 
 	// Data volume (always present — PVC if configured, emptyDir otherwise)
 	volumeMounts = append(volumeMounts, corev1.VolumeMount{

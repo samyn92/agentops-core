@@ -287,9 +287,9 @@ func (r *AgentReconciler) reconcileTask(ctx context.Context, agent *agentsv1alph
 
 	toolCount := agent.BuiltinToolCount() + len(agent.Spec.Tools)
 	meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
-		Type:   agentsv1alpha1.AgentConditionReady,
-		Status: metav1.ConditionTrue,
-		Reason: "Ready",
+		Type:    agentsv1alpha1.AgentConditionReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Ready",
 		Message: fmt.Sprintf("%d tool packages configured", toolCount),
 	})
 

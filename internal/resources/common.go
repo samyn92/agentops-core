@@ -134,11 +134,6 @@ func MCPServerObjectName(mcpName string) string {
 	return fmt.Sprintf("mcp-%s", mcpName)
 }
 
-// joinCommand joins command parts into a single space-separated string.
-func joinCommand(parts []string) string {
-	return strings.Join(parts, " ")
-}
-
 // ociRefPattern matches valid OCI image references:
 // [registry/]repository[:tag|@digest]
 // Only allows alphanumeric, dots, dashes, underscores, colons, slashes, and @sha256: digests.
