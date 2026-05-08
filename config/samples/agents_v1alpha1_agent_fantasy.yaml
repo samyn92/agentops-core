@@ -23,9 +23,14 @@ spec:
   providerRefs:
     - name: anthropic
 
-  # Tool bindings reference AgentTool CRs by name
+  # Inline OCI tool bindings
   tools:
-    - name: k8s-helper
+    - name: kubectl
+      oci:
+        ref: ghcr.io/samyn92/agent-tools/kubectl:0.3.3
+      description: "Kubernetes read-only — get, list, describe, logs"
+      category: infrastructure
+      uiHint: kubernetes-resources
 
   systemPrompt: |
     You are a senior code reviewer. Review PRs thoroughly,

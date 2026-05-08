@@ -1,4 +1,4 @@
-# Example: Task mode agent with AgentTool bindings, context, and scheduling
+# Example: Task mode agent with inline OCI tools, context, and scheduling
 apiVersion: agents.agentops.io/v1alpha1
 kind: Agent
 metadata:
@@ -25,10 +25,18 @@ spec:
         name: agent-context
         key: AGENTS.md
 
-  # Tool bindings reference AgentTool CRs by name
+  # Inline OCI tool bindings
   tools:
-    - name: jira-tools
-    - name: repo-helpers
+    - name: jira
+      oci:
+        ref: ghcr.io/samyn92/agent-tools/jira:0.2.0
+      description: "Jira — search, create, update issues"
+      category: project-management
+    - name: gitlab
+      oci:
+        ref: ghcr.io/samyn92/agent-tools/gitlab:0.9.7
+      description: "GitLab API — repos, MRs, pipelines"
+      category: development
 
   env:
     WORKSPACE_ROOT: /workspace
@@ -46,7 +54,7 @@ spec:
 
   toolHooks:
     auditTools:
-      - jira-tools
+      - jira
 
   networkPolicy:
     enabled: true

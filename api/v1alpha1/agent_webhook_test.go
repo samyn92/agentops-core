@@ -146,8 +146,8 @@ func TestValidate_NoTools(t *testing.T) {
 func TestValidate_ToolsOnly(t *testing.T) {
 	agent := validAgent()
 	agent.Spec.BuiltinTools = nil
-	agent.Spec.Tools = []AgentToolBinding{
-		{Name: "my-tool"},
+	agent.Spec.Tools = []ToolBinding{
+		{Name: "my-tool", OCI: OCIRef{Ref: "ghcr.io/test/my-tool:latest"}},
 	}
 
 	_, err := agent.validate()

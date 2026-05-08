@@ -87,37 +87,45 @@ type ContextFileRef struct {
 }
 
 // -------------------------------------------------------------------
-// AgentTool bindings (per-agent)
+// Tool bindings (inline on Agent spec)
 // -------------------------------------------------------------------
 
-// AgentToolBinding references an AgentTool CR with optional per-agent overrides.
-type AgentToolBinding struct {
-	// Name of the AgentTool CR.
+// ToolBinding describes an MCP tool server to load into the agent pod.
+// Each tool is an OCI artifact containing a binary + manifest.json.
+// The operator generates a crane init-container to pull the artifact
+// and the runtime discovers it via loadOCITools() (stdio MCP).
+type ToolBinding struct {
+	// Unique name for this tool (used as directory name under /tools/).
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
-	// Override permissions from AgentTool defaults.
+
+	// OCI artifact reference containing the MCP tool server binary.
+	// +kubebuilder:validation:Required
+	OCI OCIRef `json:"oci"`
+
+	// Human-readable description shown in the console UI.
 	// +optional
-	Permissions *MCPPermissions `json:"permissions,omitempty"`
-	// MCP tools to promote to first-class (mcpServer/mcpEndpoint sources only).
+	Description string `json:"description,omitempty"`
+
+	// Category for UI grouping (e.g. "git", "kubernetes", "observability").
 	// +optional
-	DirectTools []string `json:"directTools,omitempty"`
-	// Auto-inject skill content into every prompt (skill sources only).
+	Category string `json:"category,omitempty"`
+
+	// UI hint for icon/styling (e.g. "gitlab", "helm", "kubectl").
 	// +optional
-	AutoContext bool `json:"autoContext,omitempty"`
+	UIHint string `json:"uiHint,omitempty"`
+
+	// Extra environment variables injected into the runtime container
+	// for this tool (e.g. HELM_REGISTRIES, KUBECONFIG).
+	// +optional
+	Env []ToolEnvVar `json:"env,omitempty"`
 }
 
-// -------------------------------------------------------------------
-// MCP permissions (used by AgentToolBinding)
-// -------------------------------------------------------------------
-
-// MCPPermissions configures deny/allow rules for MCP tool calls on the proxy gateway.
-type MCPPermissions struct {
-	// Mode: "deny" blocks matching rules, "allow" only permits matching rules.
-	// +kubebuilder:validation:Enum=deny;allow
-	Mode string `json:"mode"`
-	// Rules in the form "tool_name", "tool_name:arg=value", or "tool_name:arg=pattern*".
-	Rules []string `json:"rules"`
+// ToolEnvVar is a plain-text environment variable for a tool.
+type ToolEnvVar struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // -------------------------------------------------------------------
@@ -377,10 +385,8 @@ type DelegationSpec struct {
 
 // MemorySpec configures the Engram shared memory system for an agent.
 type MemorySpec struct {
-	// Reference to the memory server. Can be an AgentTool CR name
-	// (with mcpServer/mcpEndpoint source) or a plain service name.
-	// The runtime connects to Engram's REST API via the resolved
-	// service URL.
+	// Reference to the memory server. A plain Kubernetes service name
+	// in the same namespace (e.g. "engram" resolves to http://engram.<ns>.svc:7437).
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	ServerRef string `json:"serverRef"`
@@ -419,36 +425,6 @@ type MemorySpec struct {
 }
 
 // -------------------------------------------------------------------
-// MCP health check (used by AgentTool mcpServer/mcpEndpoint sources)
-// -------------------------------------------------------------------
-
-// MCPHealthCheck configures health probing for MCP tools.
-type MCPHealthCheck struct {
-	// Health check path (deploy mode) or full URL (external mode).
-	// +optional
-	Path string `json:"path,omitempty"`
-	// Health check URL (external mode only).
-	// +optional
-	URL string `json:"url,omitempty"`
-	// Probe interval in seconds.
-	// +optional
-	// +kubebuilder:default=30
-	IntervalSeconds int `json:"intervalSeconds,omitempty"`
-}
-
-// -------------------------------------------------------------------
-// MCP OAuth (used by AgentTool mcpEndpoint source)
-// -------------------------------------------------------------------
-
-// MCPOAuthConfig configures OAuth for external MCP servers.
-type MCPOAuthConfig struct {
-	// Secret containing the OAuth client ID.
-	ClientIDSecret SecretKeyRef `json:"clientIdSecret"`
-	// Secret containing the OAuth client secret.
-	ClientSecretSecret SecretKeyRef `json:"clientSecretSecret"`
-}
-
-// -------------------------------------------------------------------
 // Security overrides
 // -------------------------------------------------------------------
 
@@ -471,9 +447,8 @@ type SecurityOverrides struct {
 	Pod *corev1.PodSecurityContext `json:"pod,omitempty"`
 
 	// Container-level overrides applied to the workload's main container
-	// only. Init containers and operator-injected sidecars (mcp-gateway,
-	// token-injector) always use the restricted defaults. Cannot enable
-	// privilege escalation, disable RO rootfs, disable RunAsNonRoot,
+	// only. Init containers always use the restricted defaults. Cannot
+	// enable privilege escalation, disable RO rootfs, disable RunAsNonRoot,
 	// or add capabilities.
 	// +optional
 	Container *corev1.SecurityContext `json:"container,omitempty"`
@@ -486,6 +461,6 @@ type SecurityOverrides struct {
 	AutomountServiceAccountToken *bool `json:"automountServiceAccountToken,omitempty"`
 }
 
-// Condition type emitted on Agent / AgentTool / Channel when one or more
+// Condition type emitted on Agent / Channel when one or more
 // security override fields have been clamped to the safety floor.
 const ConditionSecurityPolicyViolations = "SecurityPolicyViolations"

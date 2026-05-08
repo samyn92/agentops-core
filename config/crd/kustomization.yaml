@@ -4,7 +4,6 @@
 resources:
 - bases/agents.agentops.io_agents.yaml
 - bases/agents.agentops.io_integrations.yaml
-- bases/agents.agentops.io_agenttools.yaml
 - bases/agents.agentops.io_channels.yaml
 - bases/agents.agentops.io_agentruns.yaml
 - bases/agents.agentops.io_providers.yaml

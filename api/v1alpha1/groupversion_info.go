@@ -34,7 +34,6 @@ var (
 		s.AddKnownTypes(GroupVersion,
 			&Agent{}, &AgentList{},
 			&AgentRun{}, &AgentRunList{},
-			&AgentTool{}, &AgentToolList{},
 			&Integration{}, &IntegrationList{},
 			&Channel{}, &ChannelList{},
 			&Provider{}, &ProviderList{},

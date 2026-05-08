@@ -140,13 +140,14 @@ type AgentSpec struct {
 	Delegation *DelegationSpec `json:"delegation,omitempty"`
 
 	// ====================================================================
-	// TOOLS (unified via AgentTool CRs)
+	// TOOLS (inline OCI artifacts, MCP stdio)
 	// ====================================================================
 
-	// Tool bindings referencing AgentTool CRs. Each binding names an
-	// AgentTool and allows per-agent permission overrides.
+	// Tool bindings. Each entry is an OCI artifact containing an MCP tool
+	// server binary. The operator generates crane init-containers to pull
+	// them and the runtime discovers them via loadOCITools().
 	// +optional
-	Tools []AgentToolBinding `json:"tools,omitempty"`
+	Tools []ToolBinding `json:"tools,omitempty"`
 
 	// Tools that require user approval before execution (permission gate).
 	// Each entry is a tool name. If empty, all tools run automatically.
@@ -291,8 +292,6 @@ type AgentStatus struct {
 const (
 	// AgentConditionReady indicates the agent is fully operational.
 	AgentConditionReady = "Ready"
-	// AgentConditionToolsReady indicates all bound AgentTools are Ready.
-	AgentConditionToolsReady = "ToolsReady"
 	// AgentConditionProvidersReady indicates all LLM providers are configured.
 	AgentConditionProvidersReady = "ProvidersReady"
 	// AgentConditionResourcesReady indicates all resource bindings are resolved and ready.

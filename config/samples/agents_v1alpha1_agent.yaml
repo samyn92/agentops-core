@@ -1,4 +1,4 @@
-# Default sample: Fantasy runtime daemon agent with AgentTool bindings
+# Default sample: Fantasy runtime daemon agent with inline OCI tools
 apiVersion: agents.agentops.io/v1alpha1
 kind: Agent
 metadata:
@@ -30,19 +30,14 @@ spec:
     You are a senior code reviewer. Analyze code changes for bugs,
     security issues, and style violations. Be concise and actionable.
 
-  # Tool bindings reference AgentTool CRs by name
+  # Inline OCI tool bindings (no AgentTool CRs needed)
   tools:
-    - name: gitlab-mcp
-      permissions:
-        mode: allow
-        rules:
-          - "get_merge_request"
-          - "get_merge_request_changes"
-          - "create_merge_request_note"
-      directTools:
-        - create_merge_request_note
-    - name: code-review-skill
-      autoContext: true
+    - name: gitlab
+      oci:
+        ref: ghcr.io/samyn92/agent-tools/gitlab:0.9.7
+      description: "GitLab API — MRs, issues, pipelines"
+      category: development
+      uiHint: gitlab
 
   storage:
     size: 5Gi

@@ -66,24 +66,21 @@ func assertRestrictedCompliant(t *testing.T, label string, meta *metav1.ObjectMe
 // ----------------------------------------------------------------------
 
 func TestRestrictedPSS_AgentDeployment(t *testing.T) {
-	d := BuildAgentDeployment(testAgent(), nil, nil, InfraConfig{})
+	d := BuildAgentDeployment(testAgent(), nil, InfraConfig{})
 	assertRestrictedCompliant(t, "Agent Deployment",
 		&d.Spec.Template.ObjectMeta, &d.Spec.Template.Spec)
 }
 
-func TestRestrictedPSS_AgentDeployment_WithMCPTools(t *testing.T) {
+func TestRestrictedPSS_AgentDeployment_WithOCITools(t *testing.T) {
 	agent := testAgent()
-	agent.Spec.Tools = []agentsv1alpha1.AgentToolBinding{{Name: "kubectl"}}
-	tools := []agentsv1alpha1.AgentTool{{
-		ObjectMeta: metav1.ObjectMeta{Name: "kubectl", Namespace: "agents"},
-		Spec: agentsv1alpha1.AgentToolSpec{
-			MCPEndpoint: &agentsv1alpha1.MCPEndpointToolSource{
-				URL: "http://mcp-kubectl:8080",
-			},
+	agent.Spec.Tools = []agentsv1alpha1.ToolBinding{
+		{
+			Name: "kubectl",
+			OCI:  agentsv1alpha1.OCIRef{Ref: "ghcr.io/test/kubectl-mcp:latest"},
 		},
-	}}
-	d := BuildAgentDeployment(agent, tools, nil, InfraConfig{})
-	assertRestrictedCompliant(t, "Agent Deployment with MCP gateway sidecar",
+	}
+	d := BuildAgentDeployment(agent, nil, InfraConfig{})
+	assertRestrictedCompliant(t, "Agent Deployment with OCI tool init containers",
 		&d.Spec.Template.ObjectMeta, &d.Spec.Template.Spec)
 }
 
@@ -102,22 +99,8 @@ func TestRestrictedPSS_AgentDeployment_WithOAuth2Provider(t *testing.T) {
 			},
 		},
 	}}
-	d := BuildAgentDeployment(agent, nil, providers, InfraConfig{})
-	assertRestrictedCompliant(t, "Agent Deployment with token-injector sidecar",
-		&d.Spec.Template.ObjectMeta, &d.Spec.Template.Spec)
-}
-
-func TestRestrictedPSS_AgentToolDeployment(t *testing.T) {
-	tool := &agentsv1alpha1.AgentTool{
-		ObjectMeta: metav1.ObjectMeta{Name: "echo-mcp", Namespace: "agents"},
-		Spec: agentsv1alpha1.AgentToolSpec{
-			MCPServer: &agentsv1alpha1.MCPServerToolSource{
-				Image: "ghcr.io/example/echo-mcp:1.0",
-			},
-		},
-	}
-	d := BuildAgentToolDeployment(tool)
-	assertRestrictedCompliant(t, "AgentTool MCP server Deployment",
+	d := BuildAgentDeployment(agent, providers, InfraConfig{})
+	assertRestrictedCompliant(t, "Agent Deployment with OAuth2 provider",
 		&d.Spec.Template.ObjectMeta, &d.Spec.Template.Spec)
 }
 
@@ -243,7 +226,7 @@ func TestApplySecurity_RestrictedFloorAlwaysHolds_EvenWithMaliciousOverrides(t *
 			},
 		},
 	}
-	d := BuildAgentDeployment(agent, nil, nil, InfraConfig{})
+	d := BuildAgentDeployment(agent, nil, InfraConfig{})
 	assertRestrictedCompliant(t, "Agent Deployment with malicious overrides",
 		&d.Spec.Template.ObjectMeta, &d.Spec.Template.Spec)
 }
@@ -256,7 +239,7 @@ func TestApplySecurity_BenignOverridesArePreserved(t *testing.T) {
 			RunAsUser: &uid,
 		},
 	}
-	d := BuildAgentDeployment(agent, nil, nil, InfraConfig{})
+	d := BuildAgentDeployment(agent, nil, InfraConfig{})
 	got := d.Spec.Template.Spec.SecurityContext
 	if got == nil || got.RunAsUser == nil || *got.RunAsUser != uid {
 		t.Fatalf("expected pod.runAsUser=%d, got %+v", uid, got)
@@ -266,7 +249,7 @@ func TestApplySecurity_BenignOverridesArePreserved(t *testing.T) {
 }
 
 func TestApplySecurity_AutomountServiceAccountTokenDefaultsFalse(t *testing.T) {
-	d := BuildAgentDeployment(testAgent(), nil, nil, InfraConfig{})
+	d := BuildAgentDeployment(testAgent(), nil, InfraConfig{})
 	a := d.Spec.Template.Spec.AutomountServiceAccountToken
 	if a == nil || *a {
 		t.Fatalf("expected automountServiceAccountToken=false, got %+v", a)
@@ -279,7 +262,7 @@ func TestApplySecurity_AutomountServiceAccountTokenOptIn(t *testing.T) {
 	agent.Spec.Security = &agentsv1alpha1.SecurityOverrides{
 		AutomountServiceAccountToken: &tr,
 	}
-	d := BuildAgentDeployment(agent, nil, nil, InfraConfig{})
+	d := BuildAgentDeployment(agent, nil, InfraConfig{})
 	a := d.Spec.Template.Spec.AutomountServiceAccountToken
 	if a == nil || !*a {
 		t.Fatalf("expected automountServiceAccountToken=true, got %+v", a)

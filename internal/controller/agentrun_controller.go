@@ -60,7 +60,6 @@ type AgentRunReconciler struct {
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agentruns/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agentruns/finalizers,verbs=update
 // +kubebuilder:rbac:groups=agents.agentops.io,resources=agents,verbs=get;list;watch
-// +kubebuilder:rbac:groups=agents.agentops.io,resources=agenttools,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods;pods/log,verbs=get;list;watch
 
@@ -318,15 +317,6 @@ func (r *AgentRunReconciler) cancelOldestRun(ctx context.Context, current *agent
 func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	// Resolve AgentTools for the job
-	var agentTools []agentsv1alpha1.AgentTool
-	for _, binding := range agent.Spec.Tools {
-		tool := &agentsv1alpha1.AgentTool{}
-		if err := r.Get(ctx, types.NamespacedName{Name: binding.Name, Namespace: agent.Namespace}, tool); err == nil {
-			agentTools = append(agentTools, *tool)
-		}
-	}
-
 	// Resolve Provider CRs for the job
 	var resolvedProviders []agentsv1alpha1.Provider
 	for _, ref := range agent.Spec.ProviderRefs {
@@ -393,7 +383,7 @@ func (r *AgentRunReconciler) reconcileTaskRun(ctx context.Context, run *agentsv1
 		}
 
 		// Create Job
-		job := resources.BuildAgentRunJob(run, agent, agentTools, resolvedProviders, gitCfg, runConfigMapName, r.Infra)
+		job := resources.BuildAgentRunJob(run, agent, resolvedProviders, gitCfg, runConfigMapName, r.Infra)
 		if err := controllerutil.SetControllerReference(run, job, r.Scheme); err != nil {
 			return ctrl.Result{}, err
 		}

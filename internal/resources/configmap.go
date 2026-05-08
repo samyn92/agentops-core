@@ -193,16 +193,6 @@ type ToolEntry struct {
 	UIHint      string `json:"uiHint,omitempty"`
 }
 
-// MCPEntry describes an MCP server binding.
-type MCPEntry struct {
-	Name        string   `json:"name"`
-	Port        int      `json:"port"`
-	DirectTools []string `json:"directTools,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Category    string   `json:"category,omitempty"`
-	UIHint      string   `json:"uiHint,omitempty"`
-}
-
 // ProviderEntry describes a configured provider in config.json.
 // The runtime uses the Type field for type-based SDK dispatch with full
 // option wiring (base URL, headers, Vertex/Bedrock config, Responses API,
@@ -397,7 +387,6 @@ type AgentConfig struct {
 	PlatformProtocol   string                 `json:"platformProtocol,omitempty"`
 	BuiltinTools       []string               `json:"builtinTools"`
 	Tools              []ToolEntry            `json:"tools"`
-	MCPServers         []MCPEntry             `json:"mcpServers,omitempty"`
 	ToolHooks          *ToolHooksEntry        `json:"toolHooks,omitempty"`
 	ContextFiles       []ContextEntry         `json:"contextFiles,omitempty"`
 	Temperature        *float64               `json:"temperature,omitempty"`
@@ -417,10 +406,8 @@ type AgentConfig struct {
 // ====================================================================
 
 // BuildAgentConfigMap generates the operator extension ConfigMap from an Agent spec.
-// agentTools is the resolved list of AgentTool CRs (used to look up the memory server URL
-// and to build tool/MCP entries).
 // providers is the resolved list of Provider CRs referenced by the agent via providerRefs.
-func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, integrations []agentsv1alpha1.Integration, agentTools []agentsv1alpha1.AgentTool, providers []agentsv1alpha1.Provider) (*corev1.ConfigMap, error) {
+func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, integrations []agentsv1alpha1.Integration, providers []agentsv1alpha1.Provider) (*corev1.ConfigMap, error) {
 	config := AgentConfig{
 		Runtime:            "fantasy",
 		PrimaryModel:       agent.Spec.Model,
@@ -437,7 +424,7 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, integrations []agentsv1alp
 
 	// Memory (Engram integration)
 	if agent.Spec.Memory != nil {
-		serverURL := resolveMemoryServerURL(agent.Spec.Memory.ServerRef, agent.Namespace, agentTools)
+		serverURL := resolveMemoryServerURL(agent.Spec.Memory.ServerRef, agent.Namespace)
 		if serverURL != "" {
 			project := agent.Spec.Memory.Project
 			if project == "" {
@@ -484,50 +471,16 @@ func BuildAgentConfigMap(agent *agentsv1alpha1.Agent, integrations []agentsv1alp
 		}
 	}
 
-	// Build tool map for lookups
-	toolMap := make(map[string]*agentsv1alpha1.AgentTool, len(agentTools))
-	for i := range agentTools {
-		toolMap[agentTools[i].Name] = &agentTools[i]
-	}
-
-	// Tools section: iterate agent.Spec.Tools and look up each AgentTool
-	mcpIndex := 0
-	for _, binding := range agent.Spec.Tools {
-		tool := toolMap[binding.Name]
-		if tool == nil {
-			continue
-		}
-
-		switch {
-		case tool.Spec.OCI != nil, tool.Spec.ConfigMap != nil, tool.Spec.Inline != nil:
-			// OCI, configMap, inline → ToolEntry
-			path := fmt.Sprintf("%s/%s", MountTools, binding.Name)
-			config.Tools = append(config.Tools, ToolEntry{
-				Name:        binding.Name,
-				Path:        path,
-				Description: tool.Spec.Description,
-				Category:    tool.Spec.Category,
-				UIHint:      tool.Spec.UIHint,
-			})
-
-		case tool.IsMCPSource():
-			// mcpServer, mcpEndpoint → MCPEntry (gateway port assignment by index)
-			port := GatewayBasePort + mcpIndex
-			config.MCPServers = append(config.MCPServers, MCPEntry{
-				Name:        binding.Name,
-				Port:        port,
-				DirectTools: binding.DirectTools,
-				Description: tool.Spec.Description,
-				Category:    tool.Spec.Category,
-				UIHint:      tool.Spec.UIHint,
-			})
-			mcpIndex++
-
-		case tool.Spec.Skill != nil:
-			// skill → ContextEntry
-			path := fmt.Sprintf("%s/%s", MountTools, binding.Name)
-			config.ContextFiles = append(config.ContextFiles, ContextEntry{Path: path})
-		}
+	// Tools section: inline OCI tools from agent.Spec.Tools
+	for _, tool := range agent.Spec.Tools {
+		path := fmt.Sprintf("%s/%s", MountTools, tool.Name)
+		config.Tools = append(config.Tools, ToolEntry{
+			Name:        tool.Name,
+			Path:        path,
+			Description: tool.Description,
+			Category:    tool.Category,
+			UIHint:      tool.UIHint,
+		})
 	}
 
 	// Providers: build enriched entries from Provider CRs (providerRefs).
@@ -879,140 +832,14 @@ func mapIntegrationKind(entry *IntegrationEntry, res *agentsv1alpha1.Integration
 }
 
 // resolveMemoryServerURL determines the HTTP URL for the memory (Engram) server.
-// It checks the resolved AgentTool list for a matching serverRef name with an
-// mcpServer/mcpEndpoint source; if found, it uses the tool's status ServiceURL
-// or computes it via AgentToolServiceURL. Otherwise, it assumes the server is
-// deployed manually (e.g., plain K8s Deployment+Service) and constructs a
-// conventional in-cluster URL: http://<serverRef>.<namespace>.svc:7437
-func resolveMemoryServerURL(serverRef string, namespace string, agentTools []agentsv1alpha1.AgentTool) string {
+// ServerRef is a plain Kubernetes service name in the same namespace.
+// Convention: http://<serverRef>.<namespace>.svc:7437
+func resolveMemoryServerURL(serverRef string, namespace string) string {
 	if serverRef == "" {
 		return ""
 	}
-	// Check if serverRef matches a known AgentTool CR with MCP source
-	for i := range agentTools {
-		if agentTools[i].Name == serverRef && agentTools[i].IsMCPSource() {
-			if agentTools[i].Status.ServiceURL != "" {
-				return agentTools[i].Status.ServiceURL
-			}
-			return AgentToolServiceURL(&agentTools[i])
-		}
-	}
-	// Fallback: manually deployed service (convention: name.namespace.svc:7437)
 	const engramDefaultPort = 7437
 	return fmt.Sprintf("http://%s.%s.svc:%d", serverRef, namespace, engramDefaultPort)
-}
-
-// ====================================================================
-// Gateway & MCP ConfigMaps
-// ====================================================================
-
-// BuildGatewayConfigMap generates the MCP gateway permission rules ConfigMap.
-// Only created when the agent has MCP-source tool bindings.
-func BuildGatewayConfigMap(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool) (*corev1.ConfigMap, error) {
-	// Build tool map for lookups
-	toolMap := make(map[string]*agentsv1alpha1.AgentTool, len(agentTools))
-	for i := range agentTools {
-		toolMap[agentTools[i].Name] = &agentTools[i]
-	}
-
-	// Build per-server permission rules from MCP-source tool bindings
-	rules := make(map[string]interface{})
-	for _, binding := range agent.Spec.Tools {
-		tool := toolMap[binding.Name]
-		if tool == nil || !tool.IsMCPSource() {
-			continue
-		}
-		if binding.Permissions != nil {
-			rules[binding.Name] = map[string]interface{}{
-				"mode":  binding.Permissions.Mode,
-				"rules": binding.Permissions.Rules,
-			}
-		}
-	}
-
-	if len(rules) == 0 {
-		// Still create the configmap with empty rules for the gateway
-		rules["_empty"] = nil
-	}
-
-	data, err := json.MarshalIndent(rules, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("marshal gateway config: %w", err)
-	}
-
-	return &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      ObjectName(agent.Name, "gateway"),
-			Namespace: agent.Namespace,
-			Labels:    CommonLabels(agent.Name, "gateway"),
-		},
-		Data: map[string]string{
-			"permissions.json": string(data),
-		},
-	}, nil
-}
-
-// MCPJsonConfig is the native MCP config format consumed by the runtime's MCP adapter.
-type MCPJsonConfig struct {
-	MCPServers map[string]MCPJsonServerEntry `json:"mcpServers"`
-}
-
-// MCPJsonServerEntry describes one MCP server in mcp.json.
-type MCPJsonServerEntry struct {
-	Type        string `json:"type"`
-	URL         string `json:"url"`
-	Lifecycle   string `json:"lifecycle"`
-	IdleTimeout int    `json:"idleTimeout"`
-}
-
-// BuildMCPConfigMap generates the mcp.json ConfigMap for the runtime's MCP adapter.
-// Only created when the agent has MCP-source tool bindings.
-func BuildMCPConfigMap(agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool) (*corev1.ConfigMap, error) {
-	// Build tool map for lookups
-	toolMap := make(map[string]*agentsv1alpha1.AgentTool, len(agentTools))
-	for i := range agentTools {
-		toolMap[agentTools[i].Name] = &agentTools[i]
-	}
-
-	mcpConfig := MCPJsonConfig{
-		MCPServers: make(map[string]MCPJsonServerEntry),
-	}
-
-	mcpIndex := 0
-	for _, binding := range agent.Spec.Tools {
-		tool := toolMap[binding.Name]
-		if tool == nil || !tool.IsMCPSource() {
-			continue
-		}
-		port := GatewayBasePort + mcpIndex
-		mcpConfig.MCPServers[binding.Name] = MCPJsonServerEntry{
-			Type:        "sse",
-			URL:         fmt.Sprintf("http://localhost:%d/sse", port),
-			Lifecycle:   "keep-alive",
-			IdleTimeout: 300,
-		}
-		mcpIndex++
-	}
-
-	if len(mcpConfig.MCPServers) == 0 {
-		return nil, nil
-	}
-
-	data, err := json.MarshalIndent(mcpConfig, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("marshal mcp.json: %w", err)
-	}
-
-	return &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      ObjectName(agent.Name, "mcp"),
-			Namespace: agent.Namespace,
-			Labels:    CommonLabels(agent.Name, "mcp"),
-		},
-		Data: map[string]string{
-			"mcp.json": string(data),
-		},
-	}, nil
 }
 
 // ProviderEnvVarName returns the standard env var name for a provider API key.

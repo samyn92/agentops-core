@@ -34,7 +34,6 @@ rules:
   resources:
   - agentruns
   - agents
-  - agenttools
   - channels
   - integrations
   - providers
@@ -51,7 +50,6 @@ rules:
   resources:
   - agentruns/finalizers
   - agents/finalizers
-  - agenttools/finalizers
   - channels/finalizers
   - integrations/finalizers
   - providers/finalizers
@@ -62,7 +60,6 @@ rules:
   resources:
   - agentruns/status
   - agents/status
-  - agenttools/status
   - channels/status
   - integrations/status
   - providers/status

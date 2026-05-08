@@ -26,14 +26,14 @@ import (
 )
 
 // BuildAgentRunJob creates a Job for a task-mode AgentRun.
-// gitCfg is optional — when non-nil, git workspace env vars and tool init containers are injected.
+// gitCfg is optional — when non-nil, git workspace env vars are injected.
 // runConfigMapName overrides the operator config volume to use a per-run ConfigMap (empty = use agent default).
-func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent, agentTools []agentsv1alpha1.AgentTool, providers []agentsv1alpha1.Provider, gitCfg *GitWorkspaceConfig, runConfigMapName string, infra InfraConfig) *batchv1.Job {
+func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent, providers []agentsv1alpha1.Provider, gitCfg *GitWorkspaceConfig, runConfigMapName string, infra InfraConfig) *batchv1.Job {
 	labels := CommonLabels(agent.Name, "task-run")
 	labels["agents.agentops.io/run"] = run.Name
 
 	// Build the pod spec in task mode
-	podSpec := buildAgentPodSpec(agent, agentTools, providers, true, infra)
+	podSpec := buildAgentPodSpec(agent, providers, true, infra)
 
 	// Inject AGENT_PROMPT and AGENT_RUN_NAME into the main container
 	for i := range podSpec.Containers {
@@ -62,23 +62,13 @@ func BuildAgentRunJob(run *agentsv1alpha1.AgentRun, agent *agentsv1alpha1.Agent,
 				})
 			}
 
-			// Inject git workspace env vars and tool volume mounts
+			// Inject git workspace env vars (credentials + metadata).
+			// Tool binaries come from the agent's spec.tools[] OCI artifacts.
 			if gitCfg != nil {
 				podSpec.Containers[i].Env = append(podSpec.Containers[i].Env, gitCfg.GitEnvVars()...)
-				podSpec.Containers[i].VolumeMounts = append(podSpec.Containers[i].VolumeMounts, gitCfg.GitToolVolumeMounts()...)
 			}
 			break
 		}
-	}
-
-	// Inject git tool init containers and volumes (no sidecars — tools run via stdio).
-	// Init containers are appended after buildAgentPodSpec has already hardened
-	// the existing ones; re-apply ApplySecurity so the new ones get the same
-	// restricted SecurityContext + /tmp mount.
-	if gitCfg != nil {
-		podSpec.InitContainers = append(podSpec.InitContainers, gitCfg.GitToolInitContainers()...)
-		podSpec.Volumes = append(podSpec.Volumes, gitCfg.GitToolVolumes()...)
-		ApplySecurity(&podSpec, ContainerRuntime, agent.Spec.Security)
 	}
 
 	// Override the config volume to use a per-run ConfigMap if specified

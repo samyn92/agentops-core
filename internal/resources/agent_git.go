@@ -18,31 +18,9 @@ package resources
 
 import (
 	"fmt"
-	"os"
 
 	agentsv1alpha1 "github.com/samyn92/agentops-core/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-)
-
-func getEnvOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-var (
-	// Container images for the platform-specific MCP tool servers.
-	// These are real container images (with rootfs, PATH, etc.) built from
-	// each server's Dockerfile — NOT the OCI artifacts pushed by `agent-tools push`.
-	// The "-server" suffix distinguishes container images from OCI artifacts.
-	//
-	// Note: git operations (clone, commit, push, etc.) are now handled by
-	// go-git built into the runtime — no mcp-git sidecar needed.
-	// Platform tools (GitHub/GitLab) are loaded via init container + stdio exec
-	// — no gateway sidecar needed.
-	GitHubToolImage = getEnvOrDefault("AGENTOPS_GITHUB_TOOL_IMAGE", "ghcr.io/samyn92/agent-tools/github-server:0.8.3")
-	GitLabToolImage = getEnvOrDefault("AGENTOPS_GITLAB_TOOL_IMAGE", "ghcr.io/samyn92/agent-tools/gitlab-server:0.8.3")
 )
 
 const (
@@ -203,8 +181,10 @@ func (g *GitWorkspaceConfig) GitEnvVars() []corev1.EnvVar {
 }
 
 // GitToolEntries returns ToolEntry items for the runtime config so it discovers
-// git platform tools via loadOCITools() (stdio exec, no gateway sidecar).
-// The init containers copy the tool binary + manifest.json into /tools/<provider>.
+// git platform tools via loadOCITools() (stdio exec).
+// The tool binary must be declared in the agent's spec.tools[] as an OCI artifact.
+// This method only provides the config.json entries — the init containers are
+// generated from the agent's spec.tools[].
 func (g *GitWorkspaceConfig) GitToolEntries() []ToolEntry {
 	var entries []ToolEntry
 
@@ -228,68 +208,4 @@ func (g *GitWorkspaceConfig) GitToolEntries() []ToolEntry {
 	}
 
 	return entries
-}
-
-// GitToolVolumes returns volumes needed for the platform-specific tool binaries.
-// Each provider gets an emptyDir where the init container copies the binary + manifest.
-func (g *GitWorkspaceConfig) GitToolVolumes() []corev1.Volume {
-	var volumes []corev1.Volume
-	switch g.Provider {
-	case ProviderGitHub:
-		volumes = append(volumes, corev1.Volume{
-			Name: "tool-github", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-		})
-	case ProviderGitLab:
-		volumes = append(volumes, corev1.Volume{
-			Name: "tool-gitlab", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-		})
-	}
-	return volumes
-}
-
-// GitToolVolumeMounts returns volume mounts for the runtime container so it
-// can access the tool binary + manifest copied by the init container.
-func (g *GitWorkspaceConfig) GitToolVolumeMounts() []corev1.VolumeMount {
-	var mounts []corev1.VolumeMount
-	switch g.Provider {
-	case ProviderGitHub:
-		mounts = append(mounts, corev1.VolumeMount{
-			Name: "tool-github", MountPath: MountTools + "/github", ReadOnly: true,
-		})
-	case ProviderGitLab:
-		mounts = append(mounts, corev1.VolumeMount{
-			Name: "tool-gitlab", MountPath: MountTools + "/gitlab", ReadOnly: true,
-		})
-	}
-	return mounts
-}
-
-// GitToolInitContainers returns init containers that copy the tool binary and
-// manifest.json from the tool server image into a shared emptyDir volume.
-// The runtime's loadOCITools() reads manifest.json to find the binary name,
-// then spawns it via stdio — no gateway or HTTP hop needed.
-func (g *GitWorkspaceConfig) GitToolInitContainers() []corev1.Container {
-	var inits []corev1.Container
-	switch g.Provider {
-	case ProviderGitHub:
-		inits = append(inits, buildToolCopyInitContainer("copy-tool-github", GitHubToolImage, "tool-github", "mcp-github"))
-	case ProviderGitLab:
-		inits = append(inits, buildToolCopyInitContainer("copy-tool-gitlab", GitLabToolImage, "tool-gitlab", "mcp-gitlab"))
-	}
-	return inits
-}
-
-// buildToolCopyInitContainer creates an init container that copies the tool
-// binary and manifest.json from the tool server image into a shared volume.
-// Layout after copy: /tools/<provider>/manifest.json, /tools/<provider>/mcp-<provider>
-func buildToolCopyInitContainer(name, image, volumeName, binaryName string) corev1.Container {
-	return corev1.Container{
-		Name:    name,
-		Image:   image,
-		Command: []string{"/bin/sh", "-c"},
-		Args:    []string{fmt.Sprintf("cp /bin/%s /out/%s && cp /manifest.json /out/manifest.json", binaryName, binaryName)},
-		VolumeMounts: []corev1.VolumeMount{
-			{Name: volumeName, MountPath: "/out"},
-		},
-	}
 }
